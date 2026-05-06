@@ -28,6 +28,7 @@ export default function App() {
   const bootstrapSession = useGameStore((state) => state.bootstrapSession);
   const clearApiError = useGameStore((state) => state.clearApiError);
   const setLanguageFromSystem = useGameStore((state) => state.setLanguageFromSystem);
+  const syncEnergyClock = useGameStore((state) => state.syncEnergyClock);
   const Page = pages[activeTab];
 
   useEffect(() => {
@@ -36,9 +37,15 @@ export default function App() {
     void bootstrapSession(telegram.getInitData());
   }, [bootstrapSession, setLanguageFromSystem]);
 
+  useEffect(() => {
+    syncEnergyClock();
+    const timer = window.setInterval(syncEnergyClock, 30_000);
+    return () => window.clearInterval(timer);
+  }, [syncEnergyClock]);
+
   if (isBootstrapping) {
     return (
-      <main className="mx-auto grid min-h-screen w-full max-w-[480px] place-items-center bg-[#10141c]/95 px-6 text-white">
+      <main className="mx-auto grid min-h-[100dvh] w-full max-w-[480px] place-items-center bg-[#10141c]/95 px-6 text-white">
         <div className="text-center">
           <div className="mx-auto size-10 animate-pulse rounded-full border border-cyan-200/30 bg-cyan-300/12 shadow-[0_0_24px_rgba(34,211,238,0.14)]" />
           <p className="game-label mt-4 text-cyan-50">Syncing game</p>
@@ -50,7 +57,7 @@ export default function App() {
 
   if (apiError && !accessToken) {
     return (
-      <main className="mx-auto grid min-h-screen w-full max-w-[480px] place-items-center bg-[#10141c]/95 px-6 text-white">
+      <main className="mx-auto grid min-h-[100dvh] w-full max-w-[480px] place-items-center bg-[#10141c]/95 px-6 text-white">
         <section className="w-full rounded-lg border border-amber-200/25 bg-amber-300/[0.07] p-5 text-center shadow-[0_0_28px_rgba(252,211,77,0.1)]">
           <p className="game-title text-xl text-amber-100">Server is offline</p>
           <p className="game-caption mt-2 text-sm leading-5 text-zinc-300">{apiError}</p>
@@ -70,8 +77,8 @@ export default function App() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-[560px] flex-col overflow-hidden bg-[#10141c]/95 text-white">
-      <div className="flex-1 overflow-y-auto px-3 pb-24 pt-2 sm:px-4">
+    <main className="mx-auto flex h-[100dvh] min-h-0 w-full max-w-[560px] flex-col overflow-hidden bg-[#10141c]/95 text-white">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-[5.25rem] pt-2 sm:px-3">
         {apiError ? (
           <button
             type="button"

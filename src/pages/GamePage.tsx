@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Header } from '../shared/Header';
 import { useT } from '../shared/i18n';
+import { telegram } from '../lib/telegram';
 import { getDeleteEnergy, getDeleteXp, raceConfig, rarityConfig } from '../config/gameConfig';
 import { useGameStore } from '../store/gameStore';
 import type { GameCard } from '../types';
@@ -35,17 +36,17 @@ const CardFace = memo(function CardFace({ card, muted = false }: { card: GameCar
 
   return (
     <div
-      className={`relative flex h-full select-none flex-col overflow-hidden rounded-md border bg-[#101722] p-2 shadow-[0_6px_14px_rgba(0,0,0,0.22)] ${
+      className={`relative flex h-full select-none flex-col overflow-hidden rounded-md border bg-[#101722] p-1.5 shadow-[0_5px_12px_rgba(0,0,0,0.2)] ${
         muted ? 'opacity-35 saturate-50' : ''
       }`}
       style={{ borderColor: `${race.accent}d8` }}
     >
-      <div className="absolute inset-x-0 top-0 h-1.5" style={{ backgroundColor: race.accent }} />
+      <div className="absolute inset-x-0 top-0 h-1" style={{ backgroundColor: race.accent }} />
       <div className="grid min-h-0 flex-1 place-items-center pt-1">
-        <span className="game-title text-[clamp(1.45rem,7vw,2rem)] leading-none text-white">{card.imageUrl}</span>
+        <span className="game-title text-[clamp(1.25rem,6.5vw,1.85rem)] leading-none text-white">{card.imageUrl}</span>
       </div>
       <div className="grid place-items-center">
-        <span className="game-number rounded-full bg-amber-200 px-2 py-0.5 text-xs leading-none text-zinc-950">
+        <span className="game-number rounded-full bg-amber-200 px-1.5 py-0.5 text-[11px] leading-none text-zinc-950">
           {card.stars}
           {'\u2605'}
         </span>
@@ -144,9 +145,27 @@ export function GamePage() {
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [actionCard, setActionCard] = useState<GameCard | null>(null);
   const pendingDrag = useRef<PendingDrag | null>(null);
+  const hasStartedDrag = useRef(false);
   const isCreateDisabled = energy.current < energy.createCost || board.every(Boolean);
   const matchSource = dragState?.card ?? actionCard;
   const t = useT();
+  const lockDrag = () => {
+    telegram.disableVerticalSwipes();
+    document.body.classList.add('drag-lock');
+  };
+  const unlockDrag = () => {
+    telegram.enableVerticalSwipes();
+    document.body.classList.remove('drag-lock');
+  };
+  const resetDrag = () => {
+    pendingDrag.current = null;
+    hasStartedDrag.current = false;
+    setDragState(null);
+    setDropIndex(null);
+    unlockDrag();
+  };
+
+  useEffect(() => () => unlockDrag(), []);
 
   useEffect(() => {
     if (!actionCard) return;
@@ -171,14 +190,14 @@ export function GamePage() {
   return (
     <>
       <Header />
-      <section className="rounded-lg border border-white/10 bg-white/[0.045] p-2 shadow-2xl">
-        <div className="mb-2 rounded-md border border-cyan-200/18 bg-cyan-300/[0.055] px-3 py-2 shadow-[0_0_22px_rgba(34,211,238,0.1)]">
+      <section className="rounded-lg border border-white/10 bg-white/[0.045] p-1.5 shadow-2xl">
+        <div className="mb-1.5 rounded-md border border-cyan-200/18 bg-cyan-300/[0.055] px-2 py-1.5 shadow-[0_0_22px_rgba(34,211,238,0.1)]">
           <h2 className="game-title text-sm text-cyan-50 drop-shadow-[0_0_8px_rgba(34,211,238,0.28)]">{t('battleBoard')}</h2>
-          <p className="game-caption mt-0.5 text-[11px] leading-4 text-cyan-100/78">{t('boardHint')}</p>
+          <p className="game-caption mt-0.5 text-[10px] leading-3 text-cyan-100/78">{t('boardHint')}</p>
         </div>
         <div
-          className="mx-auto grid aspect-square touch-none grid-cols-4 gap-1.5"
-          style={{ width: 'min(100%, calc(100dvh - 292px))', maxWidth: '440px' }}
+          className="mx-auto grid aspect-square touch-pan-y grid-cols-4 gap-1"
+          style={{ width: 'min(100%, clamp(220px, calc(100dvh - 400px), 400px))' }}
         >
           {board.map((card, index) => {
             const isSource = Boolean(matchSource && card?.id === matchSource.id);
@@ -195,12 +214,12 @@ export function GamePage() {
                 <div className="absolute inset-1 rounded bg-white/[0.035]" />
                 {card ? (
                   <div
-                    className="relative z-10 h-full touch-none"
+                    className="relative z-10 h-full touch-pan-y"
                     onPointerDown={(event) => {
-                      event.preventDefault();
                       event.stopPropagation();
                       const rect = event.currentTarget.getBoundingClientRect();
-                      event.currentTarget.setPointerCapture(event.pointerId);
+                      telegram.disableVerticalSwipes();
+                      hasStartedDrag.current = false;
                       pendingDrag.current = {
                         card,
                         pointerId: event.pointerId,
@@ -213,12 +232,24 @@ export function GamePage() {
                       };
                     }}
                     onPointerMove={(event) => {
-                      event.preventDefault();
                       const pending = pendingDrag.current;
                       if (!pending || pending.pointerId !== event.pointerId) return;
 
-                      const distance = Math.hypot(event.clientX - pending.startX, event.clientY - pending.startY);
-                      if (distance < 8 && !dragState) return;
+                      const deltaX = event.clientX - pending.startX;
+                      const deltaY = event.clientY - pending.startY;
+                      const distance = Math.hypot(deltaX, deltaY);
+                      if (!hasStartedDrag.current) {
+                        if (distance < 9) return;
+                        if (Math.abs(deltaY) > Math.abs(deltaX) * 1.2) {
+                          pendingDrag.current = null;
+                          return;
+                        }
+                        hasStartedDrag.current = true;
+                        event.currentTarget.setPointerCapture(event.pointerId);
+                        lockDrag();
+                      }
+
+                      event.preventDefault();
 
                       setActionCard(null);
                       setDropIndex(getSlotIndexAtPoint(event.clientX, event.clientY));
@@ -228,24 +259,26 @@ export function GamePage() {
                       });
                     }}
                     onPointerUp={(event) => {
-                      event.preventDefault();
                       const pending = pendingDrag.current;
                       const targetIndex = getSlotIndexAtPoint(event.clientX, event.clientY);
 
-                      if (dragState) {
-                        handleDrop(dragState.card, targetIndex);
+                      if (hasStartedDrag.current && pending) {
+                        event.preventDefault();
+                        handleDrop(pending.card, targetIndex);
                       } else if (pending && pending.pointerId === event.pointerId) {
                         setActionCard(card);
                       }
 
-                      pendingDrag.current = null;
-                      setDragState(null);
-                      setDropIndex(null);
+                      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                        event.currentTarget.releasePointerCapture(event.pointerId);
+                      }
+                      resetDrag();
                     }}
-                    onPointerCancel={() => {
-                      pendingDrag.current = null;
-                      setDragState(null);
-                      setDropIndex(null);
+                    onPointerCancel={(event) => {
+                      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                        event.currentTarget.releasePointerCapture(event.pointerId);
+                      }
+                      resetDrag();
                     }}
                   >
                     <CardFace card={card} muted={dragState?.card.id === card.id} />
@@ -258,22 +291,20 @@ export function GamePage() {
           })}
         </div>
       </section>
-      <section className="mt-3 grid gap-2">
+      <section className="mt-2 grid gap-1.5">
         <button
           type="button"
           disabled={isCreateDisabled}
           onClick={() => void createCard()}
-          className="game-label min-h-12 rounded-md bg-amber-300 px-5 text-sm text-zinc-950 shadow-glow transition active:scale-[0.99] disabled:bg-zinc-700 disabled:text-zinc-400"
+          className="game-label min-h-10 rounded-md bg-amber-300 px-5 text-sm text-zinc-950 shadow-glow transition active:scale-[0.99] disabled:bg-zinc-700 disabled:text-zinc-400"
         >
           {t('createCard')} / {energy.createCost} {t('energyUnit')}
         </button>
-        <div className="game-caption rounded-md border border-white/10 bg-white/[0.045] px-3 py-2 text-xs leading-4 text-zinc-300">
-          {energy.current < energy.createCost
-            ? t('energyEmpty', { minutes: energy.regenIntervalMinutes })
-            : board.every(Boolean)
-              ? t('boardFull')
-              : t('createHint')}
-        </div>
+        {energy.current < energy.createCost || board.every(Boolean) ? (
+          <div className="game-caption rounded-md border border-white/10 bg-white/[0.045] px-3 py-2 text-xs leading-4 text-zinc-300">
+            {energy.current < energy.createCost ? t('energyEmpty', { minutes: energy.regenIntervalMinutes }) : t('boardFull')}
+          </div>
+        ) : null}
       </section>
       <DragPreview dragState={dragState} />
       <AnimatePresence>

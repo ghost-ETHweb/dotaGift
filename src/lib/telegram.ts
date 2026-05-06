@@ -1,6 +1,8 @@
 type TelegramWebApp = {
   ready: () => void;
   expand: () => void;
+  disableVerticalSwipes?: () => void;
+  enableVerticalSwipes?: () => void;
   colorScheme?: 'light' | 'dark';
   themeParams?: Record<string, string>;
   initData?: string;
@@ -36,6 +38,12 @@ export const telegram = {
   },
   notify(type: 'success' | 'warning' | 'error') {
     this.app?.HapticFeedback?.notificationOccurred(type);
+  },
+  disableVerticalSwipes() {
+    this.app?.disableVerticalSwipes?.();
+  },
+  enableVerticalSwipes() {
+    this.app?.enableVerticalSwipes?.();
   },
   getUserLanguageCode() {
     return this.app?.initDataUnsafe?.user?.language_code;

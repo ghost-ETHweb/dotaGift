@@ -99,7 +99,13 @@ strong,
 }
 
 .safe-bottom {
-  padding-bottom: max(env(safe-area-inset-bottom), 0.75rem);
+  padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+}
+
+body.drag-lock {
+  overflow: hidden;
+  overscroll-behavior: none;
+  touch-action: none;
 }
 
 @media (max-height: 720px) {
@@ -108,7 +114,7 @@ strong,
   }
 
   .safe-bottom {
-    padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+    padding-bottom: max(env(safe-area-inset-bottom), 0.375rem);
   }
 }
 

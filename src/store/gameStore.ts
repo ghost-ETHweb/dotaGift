@@ -40,6 +40,7 @@ interface GameStore {
   updateDisplayName: (displayName: string) => Promise<void>;
   setLanguage: (language: AppLanguage) => void;
   setLanguageFromSystem: (languageCode?: string) => void;
+  syncEnergyClock: () => void;
   createCard: () => Promise<void>;
   moveCard: (cardId: string, targetIndex: number) => Promise<void>;
   mergeCards: (sourceCardId: string, targetCardId: string) => Promise<void>;
@@ -108,6 +109,25 @@ const createInitialBoard = () =>
 const getLevelRewardTitle = (level: number) => rewardsTable.find((reward) => reward.level === level)?.title ?? '+5 energy';
 
 const createActionId = (name: string) => `${name}_${crypto.randomUUID()}`;
+let avatarRaceSaveTimer: ReturnType<typeof setTimeout> | undefined;
+
+const regenerateEnergy = (energy: EnergyState, now = Date.now()) => {
+  if (energy.current >= energy.max) return energy;
+
+  const nextRegenAt = Date.parse(energy.nextRegenAt ?? new Date(now).toISOString());
+  if (!Number.isFinite(nextRegenAt) || nextRegenAt > now) return energy;
+
+  const intervalMs = energy.regenIntervalMinutes * 60 * 1000;
+  const ticks = Math.floor((now - nextRegenAt) / intervalMs) + 1;
+  const current = Math.min(energy.max, energy.current + ticks);
+  const nextAt = current >= energy.max ? now + intervalMs : nextRegenAt + ticks * intervalMs;
+
+  return {
+    ...energy,
+    current,
+    nextRegenAt: new Date(nextAt).toISOString(),
+  };
+};
 
 export const useGameStore = create<GameStore>((set, get) => {
   const applyActionResponse = (response: ActionResponse) => {
@@ -188,10 +208,16 @@ export const useGameStore = create<GameStore>((set, get) => {
       set({ selectedAvatarRace: race, player: { ...player, selectedAvatarRace: race } });
       if (!accessToken) return;
 
-      void apiClient
-        .updateProfile(accessToken, { selectedAvatarRace: race })
-        .then((response) => set({ player: response.player, selectedAvatarRace: response.player.selectedAvatarRace, apiError: undefined }))
-        .catch((error) => set({ apiError: error instanceof Error ? error.message : 'Profile update failed.' }));
+      if (avatarRaceSaveTimer) clearTimeout(avatarRaceSaveTimer);
+      avatarRaceSaveTimer = setTimeout(() => {
+        const latest = get();
+        if (!latest.accessToken) return;
+
+        void apiClient
+          .updateProfile(latest.accessToken, { selectedAvatarRace: latest.selectedAvatarRace })
+          .then((response) => set({ player: response.player, selectedAvatarRace: response.player.selectedAvatarRace, apiError: undefined }))
+          .catch((error) => set({ apiError: error instanceof Error ? error.message : 'Profile update failed.' }));
+      }, 450);
     },
     updateDisplayName: async (displayName) => {
       const { accessToken } = get();
@@ -211,6 +237,19 @@ export const useGameStore = create<GameStore>((set, get) => {
     setLanguageFromSystem: (languageCode) => {
       const normalizedLanguage = languageCode?.toLowerCase().startsWith('ru') ? 'ru' : 'en';
       set({ language: normalizedLanguage });
+    },
+    syncEnergyClock: () => {
+      const { energy, player } = get();
+      const nextEnergy = regenerateEnergy(energy);
+      if (nextEnergy === energy) return;
+      set({
+        energy: nextEnergy,
+        player: {
+          ...player,
+          energy: nextEnergy.current,
+          maxEnergy: nextEnergy.max,
+        },
+      });
     },
     createCard: () => runServerAction((accessToken) => apiClient.createCard(accessToken, { clientActionId: createActionId('create') })),
     moveCard: (cardId, targetIndex) =>

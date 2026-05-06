@@ -21,8 +21,8 @@ export function ProfilePage() {
   const setLanguage = useGameStore((state) => state.setLanguage);
   const avatarRace = raceConfig[selectedAvatarRace];
   const [openPanel, setOpenPanel] = useState<ProfilePanel | null>('settings');
-  const [isEditingName, setIsEditingName] = useState(false);
-  const [displayName, setDisplayName] = useState(player.username);
+  const [isNameModalOpen, setIsNameModalOpen] = useState(false);
+  const [draftDisplayName, setDraftDisplayName] = useState(player.username);
   const [referralStats, setReferralStats] = useState<ReferralStatsResponse | null>(null);
   const activeReferralCount = referralStats?.activeInvitedCount ?? player.activeInvitedCount;
   const referralProgress = Math.min(100, (activeReferralCount / 10) * 100);
@@ -35,8 +35,8 @@ export function ProfilePage() {
   const togglePanel = (panel: ProfilePanel) => setOpenPanel((current) => (current === panel ? null : panel));
 
   useEffect(() => {
-    setDisplayName(player.username);
-  }, [player.username]);
+    if (!isNameModalOpen) setDraftDisplayName(player.username);
+  }, [isNameModalOpen, player.username]);
 
   useEffect(() => {
     if (!accessToken || openPanel !== 'partners') return;
@@ -72,33 +72,19 @@ export function ProfilePage() {
                 {avatarRace.imageUrl}
               </div>
               <div className="min-w-0">
-                {isEditingName ? (
-                  <div className="flex min-w-0 items-center gap-2">
-                    <input
-                      value={displayName}
-                      onChange={(event) => setDisplayName(event.target.value)}
-                      maxLength={32}
-                      className="game-label min-w-0 rounded-md border border-cyan-200/20 bg-black/25 px-2 py-1 text-sm text-zinc-50 outline-none focus:border-cyan-200/50"
-                    />
-                    <button
-                      type="button"
-                      disabled={isSyncing}
-                      onClick={() => {
-                        void updateDisplayName(displayName).then(() => setIsEditingName(false));
-                      }}
-                      className="game-label rounded-md bg-amber-300 px-2 py-1 text-xs text-zinc-950 disabled:bg-zinc-700 disabled:text-zinc-400"
-                    >
-                      Save
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex min-w-0 items-center gap-2">
-                    <h2 className="profile-player-name truncate text-zinc-50">{player.username}</h2>
-                    <button type="button" onClick={() => setIsEditingName(true)} className="game-caption shrink-0 rounded-md border border-white/10 px-2 py-1 text-[11px] text-zinc-300">
-                      Edit
-                    </button>
-                  </div>
-                )}
+                <div className="flex min-w-0 items-center gap-2">
+                  <h2 className="profile-player-name truncate text-zinc-50">{player.username}</h2>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraftDisplayName(player.username);
+                      setIsNameModalOpen(true);
+                    }}
+                    className="game-caption shrink-0 rounded-md border border-white/10 px-2 py-1 text-[11px] text-zinc-300 active:bg-white/[0.06]"
+                  >
+                    Edit
+                  </button>
+                </div>
                 <p className="game-caption text-sm text-zinc-400">
                   {t('avatar')}: {avatarRace.label}
                 </p>
@@ -247,7 +233,69 @@ export function ProfilePage() {
           </AccordionRow>
         </div>
       </section>
+      {isNameModalOpen ? (
+        <NameEditModal
+          value={draftDisplayName}
+          isSaving={isSyncing}
+          onChange={setDraftDisplayName}
+          onClose={() => setIsNameModalOpen(false)}
+          onSave={() => {
+            void updateDisplayName(draftDisplayName).then(() => setIsNameModalOpen(false));
+          }}
+        />
+      ) : null}
     </>
+  );
+}
+
+function NameEditModal({
+  value,
+  isSaving,
+  onChange,
+  onClose,
+  onSave,
+}: {
+  value: string;
+  isSaving: boolean;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const normalizedValue = value.trim();
+
+  return (
+    <div className="fixed inset-0 z-[95] grid place-items-center bg-black/65 px-4 backdrop-blur-sm" onPointerDown={onClose}>
+      <form
+        className="w-full max-w-[360px] rounded-lg border border-cyan-200/20 bg-[#121923] p-4 shadow-2xl shadow-black/45"
+        onPointerDown={(event) => event.stopPropagation()}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (normalizedValue) onSave();
+        }}
+      >
+        <h3 className="game-title text-lg text-cyan-50">Edit name</h3>
+        <p className="game-caption mt-1 text-xs text-zinc-400">This name is shown in your profile, referrals and leaderboard.</p>
+        <input
+          autoFocus
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          maxLength={32}
+          className="game-label mt-4 min-h-12 w-full rounded-md border border-cyan-200/25 bg-black/25 px-3 text-base text-zinc-50 outline-none focus:border-cyan-100/60"
+        />
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button type="button" onClick={onClose} className="game-label min-h-11 rounded-md border border-white/10 bg-white/[0.045] text-sm text-zinc-300">
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={isSaving || !normalizedValue}
+            className="game-label min-h-11 rounded-md bg-amber-300 text-sm text-zinc-950 disabled:bg-zinc-700 disabled:text-zinc-400"
+          >
+            Save
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 

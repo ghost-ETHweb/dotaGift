@@ -111,6 +111,10 @@ function cleanAvatarRace(value) {
   return ['orcs', 'dwarves', 'assassins', 'demons', 'mages'].includes(value) ? value : null;
 }
 
+function telegramDisplayName(telegramUser, fallback = 'Telegram Player') {
+  return [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(' ') || telegramUser.username || fallback;
+}
+
 function assertAdminAccess(request) {
   if (!env.adminToken) throw new HttpError(503, 'ADMIN_NOT_CONFIGURED', 'Admin access is not configured.');
 
@@ -221,18 +225,26 @@ async function handleLogin(request, response) {
 
   let player = await storage.getPlayerByTelegramId(telegramUser.id);
   const isNewPlayer = !player;
-  const referral = isNewPlayer ? await resolveReferralCode(referralCode, telegramUser) : null;
+  const canAttachReferral = !player || !player.referredBy;
+  const referral = canAttachReferral ? await resolveReferralCode(referralCode, telegramUser) : null;
+  let didAttachReferral = false;
+
   if (!player) {
     player = createNewPlayer(telegramUser, referral?.referralCode);
+    didAttachReferral = Boolean(referral?.referralCode);
   } else {
-    if (!player.displayNameCustom) player.username = [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(' ') || telegramUser.username || player.username;
+    if (referral?.referralCode && !player.referredBy) {
+      player.referredBy = referral.referralCode;
+      didAttachReferral = true;
+    }
+    if (!player.displayNameCustom) player.username = telegramDisplayName(telegramUser, player.username);
     player.avatarUrl = telegramUser.photo_url ?? player.avatarUrl;
     player.languageCode = telegramUser.language_code ?? player.languageCode;
   }
 
   applyEnergyRegen(player);
   await storage.savePlayer(player);
-  if (referral?.inviter) {
+  if (referral?.inviter && didAttachReferral) {
     referral.inviter.invitedCount += 1;
     await storage.savePlayer(referral.inviter);
     await trackEvent('referral_signup', referral.inviter, {

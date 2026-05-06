@@ -16,7 +16,7 @@ export function BottomNav() {
   const t = useT();
 
   return (
-    <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-[560px] border-t border-cyan-200/15 bg-[#0b2433]/95 px-2 pt-2 shadow-[0_-10px_34px_rgba(34,211,238,0.12)] backdrop-blur-xl">
+    <nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 mx-auto w-full max-w-[560px] border-t border-cyan-200/15 bg-[#0b2433]/95 px-2 pt-1.5 shadow-[0_-10px_34px_rgba(34,211,238,0.12)] backdrop-blur-xl">
       <div className="grid grid-cols-5 gap-1">
         {tabs.map((tab) => {
           const active = activeTab === tab.id;
@@ -26,7 +26,7 @@ export function BottomNav() {
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`game-caption flex min-h-14 flex-col items-center justify-center rounded-md text-[11px] transition ${
+              className={`game-caption flex min-h-12 flex-col items-center justify-center rounded-md text-[10px] transition ${
                 active
                   ? 'border border-cyan-100/20 bg-cyan-200/16 text-cyan-50 shadow-[0_0_18px_rgba(103,232,249,0.16)]'
                   : 'text-cyan-100/58 active:bg-cyan-100/8'
@@ -34,7 +34,7 @@ export function BottomNav() {
               aria-label={label}
             >
               <TabIcon id={tab.id} active={active} />
-              <span className="mt-1 truncate">{label}</span>
+              <span className="mt-0.5 truncate">{label}</span>
             </button>
           );
         })}
@@ -44,7 +44,7 @@ export function BottomNav() {
 }
 
 function TabIcon({ id, active }: { id: TabId; active: boolean }) {
-  const className = `size-5 ${active ? 'drop-shadow-[0_0_8px_rgba(103,232,249,0.45)]' : ''}`;
+  const className = `size-4 ${active ? 'drop-shadow-[0_0_8px_rgba(103,232,249,0.45)]' : ''}`;
   const props = {
     viewBox: '0 0 24 24',
     fill: 'none',
