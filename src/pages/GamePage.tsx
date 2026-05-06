@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState, type RefObject } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Header } from '../shared/Header';
 import { useT } from '../shared/i18n';
@@ -55,18 +55,20 @@ const CardFace = memo(function CardFace({ card, muted = false }: { card: GameCar
   );
 });
 
-function DragPreview({ dragState }: { dragState: DragState | null }) {
+function DragPreview({ dragState, previewRef }: { dragState: DragState | null; previewRef: RefObject<HTMLDivElement | null> }) {
   if (!dragState) return null;
 
   return (
     <div
+      ref={previewRef}
       className="pointer-events-none fixed z-[80]"
       style={{
-        left: dragState.x,
-        top: dragState.y,
+        left: 0,
+        top: 0,
         width: dragState.width,
         height: dragState.height,
-        transform: 'translate(-50%, -50%)',
+        transform: `translate3d(${dragState.x - dragState.width / 2}px, ${dragState.y - dragState.height / 2}px, 0)`,
+        willChange: 'transform',
       }}
     >
       <div className="h-full rotate-2 scale-105 drop-shadow-2xl">
@@ -146,6 +148,10 @@ export function GamePage() {
   const [actionCard, setActionCard] = useState<GameCard | null>(null);
   const pendingDrag = useRef<PendingDrag | null>(null);
   const hasStartedDrag = useRef(false);
+  const dragPreviewRef = useRef<HTMLDivElement | null>(null);
+  const dragPoint = useRef({ x: 0, y: 0 });
+  const dragFrame = useRef<number | null>(null);
+  const currentDropIndex = useRef<number | null>(null);
   const isCreateDisabled = energy.current < energy.createCost || board.every(Boolean);
   const matchSource = dragState?.card ?? actionCard;
   const t = useT();
@@ -158,11 +164,24 @@ export function GamePage() {
     document.body.classList.remove('drag-lock');
   };
   const resetDrag = () => {
+    if (dragFrame.current !== null) window.cancelAnimationFrame(dragFrame.current);
+    dragFrame.current = null;
     pendingDrag.current = null;
     hasStartedDrag.current = false;
+    currentDropIndex.current = null;
     setDragState(null);
     setDropIndex(null);
     unlockDrag();
+  };
+  const movePreview = (x: number, y: number, width: number, height: number) => {
+    dragPoint.current = { x, y };
+    if (dragFrame.current !== null) return;
+
+    dragFrame.current = window.requestAnimationFrame(() => {
+      dragFrame.current = null;
+      if (!dragPreviewRef.current) return;
+      dragPreviewRef.current.style.transform = `translate3d(${dragPoint.current.x - width / 2}px, ${dragPoint.current.y - height / 2}px, 0)`;
+    });
   };
 
   useEffect(() => () => unlockDrag(), []);
@@ -214,11 +233,10 @@ export function GamePage() {
                 <div className="absolute inset-1 rounded bg-white/[0.035]" />
                 {card ? (
                   <div
-                    className="relative z-10 h-full touch-pan-y"
+                    className="relative z-10 h-full touch-none"
                     onPointerDown={(event) => {
                       event.stopPropagation();
                       const rect = event.currentTarget.getBoundingClientRect();
-                      telegram.disableVerticalSwipes();
                       hasStartedDrag.current = false;
                       pendingDrag.current = {
                         card,
@@ -240,23 +258,21 @@ export function GamePage() {
                       const distance = Math.hypot(deltaX, deltaY);
                       if (!hasStartedDrag.current) {
                         if (distance < 9) return;
-                        if (Math.abs(deltaY) > Math.abs(deltaX) * 1.2) {
-                          pendingDrag.current = null;
-                          return;
-                        }
                         hasStartedDrag.current = true;
                         event.currentTarget.setPointerCapture(event.pointerId);
                         lockDrag();
+                        setActionCard(null);
+                        setDragState({ ...pending, x: event.clientX, y: event.clientY });
                       }
 
                       event.preventDefault();
+                      movePreview(event.clientX, event.clientY, pending.width, pending.height);
 
-                      setActionCard(null);
-                      setDropIndex(getSlotIndexAtPoint(event.clientX, event.clientY));
-                      setDragState((current) => {
-                        if (!current) return { ...pending, x: event.clientX, y: event.clientY };
-                        return { ...current, x: event.clientX, y: event.clientY };
-                      });
+                      const nextDropIndex = getSlotIndexAtPoint(event.clientX, event.clientY);
+                      if (nextDropIndex !== currentDropIndex.current) {
+                        currentDropIndex.current = nextDropIndex;
+                        setDropIndex(nextDropIndex);
+                      }
                     }}
                     onPointerUp={(event) => {
                       const pending = pendingDrag.current;
@@ -306,7 +322,7 @@ export function GamePage() {
           </div>
         ) : null}
       </section>
-      <DragPreview dragState={dragState} />
+      <DragPreview dragState={dragState} previewRef={dragPreviewRef} />
       <AnimatePresence>
         {actionCard ? (
           <CardActionSheet
