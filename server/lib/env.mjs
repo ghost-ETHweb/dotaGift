@@ -19,8 +19,11 @@ function loadDotEnv() {
 
 export function readEnv() {
   loadDotEnv();
+  const nodeEnv = process.env.NODE_ENV ?? 'development';
 
   return {
+    nodeEnv,
+    isProduction: nodeEnv === 'production',
     port: Number(process.env.PORT ?? 8787),
     clientOrigin: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173',
     telegramBotToken: process.env.TELEGRAM_BOT_TOKEN ?? '',

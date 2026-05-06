@@ -109,6 +109,11 @@ export class PgStorage {
     return this.hydratePlayer(result.rows[0]);
   }
 
+  async getPlayerByReferralCode(referralCode) {
+    const result = await this.pool.query('SELECT * FROM players WHERE referral_code = $1', [referralCode]);
+    return this.hydratePlayer(result.rows[0]);
+  }
+
   async savePlayer(player) {
     const client = await this.pool.connect();
 

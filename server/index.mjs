@@ -29,12 +29,26 @@ const demoLeaderboardRows = [
   { id: 'seed_ward_sentinel', username: 'Ward Sentinel', selectedAvatarRace: 'mages', level: 64, xp: 65220, trophies: Array.from({ length: 4 }, () => ({ rarity: 'immortal' })) },
 ];
 
+function isLocalOrigin(origin) {
+  return origin?.startsWith('http://localhost:') || origin?.startsWith('http://127.0.0.1:');
+}
+
+function securityHeaders() {
+  return {
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'no-referrer',
+    'permissions-policy': 'camera=(), microphone=(), geolocation=()',
+    ...(env.isProduction ? { 'strict-transport-security': 'max-age=63072000; includeSubDomains; preload' } : {}),
+  };
+}
+
 function corsHeaders(request) {
   const origin = request.headers.origin;
-  const allowedOrigin = origin === env.clientOrigin || origin?.startsWith('http://localhost:') || origin?.startsWith('http://127.0.0.1:') ? origin : env.clientOrigin;
+  const isAllowedOrigin = origin === env.clientOrigin || (!env.isProduction && isLocalOrigin(origin));
 
   return {
-    'access-control-allow-origin': allowedOrigin,
+    ...securityHeaders(),
+    ...(isAllowedOrigin ? { 'access-control-allow-origin': origin } : {}),
     'access-control-allow-headers': 'content-type, authorization, x-admin-token',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
     'access-control-max-age': '86400',
@@ -64,6 +78,16 @@ async function trackEvent(eventType, player, payload = {}) {
   }
 }
 
+function safeEqualSecret(incoming, expected) {
+  if (!incoming || !expected) return false;
+
+  const incomingBuffer = Buffer.from(incoming);
+  const expectedBuffer = Buffer.from(expected);
+  if (incomingBuffer.length !== expectedBuffer.length) return false;
+
+  return crypto.timingSafeEqual(incomingBuffer, expectedBuffer);
+}
+
 async function trackLevelUp(player, result) {
   if (!result.levelUp) return;
   await trackEvent('level_up', player, {
@@ -81,7 +105,25 @@ function assertAdminAccess(request) {
   const headerToken = Array.isArray(headerValue) ? headerValue[0] : headerValue;
   const token = bearerToken || headerToken;
 
-  if (token !== env.adminToken) throw new HttpError(401, 'ADMIN_UNAUTHORIZED', 'Valid admin token is required.');
+  if (!safeEqualSecret(token, env.adminToken)) throw new HttpError(401, 'ADMIN_UNAUTHORIZED', 'Valid admin token is required.');
+}
+
+function normalizeReferralCode(referralCode) {
+  if (typeof referralCode !== 'string') return null;
+  const normalized = referralCode.trim();
+  return /^ref_[A-Za-z0-9_-]{3,64}$/.test(normalized) ? normalized : null;
+}
+
+async function resolveReferralCode(rawReferralCode, telegramUser) {
+  const referralCode = normalizeReferralCode(rawReferralCode);
+  if (!referralCode) return null;
+  if (referralCode === `ref_${telegramUser.id}`) return null;
+
+  const inviter = await storage.getPlayerByReferralCode(referralCode);
+  if (!inviter) return null;
+  if (inviter.telegramId === String(telegramUser.id)) return null;
+
+  return { referralCode, inviter };
 }
 
 async function getAuthedPlayer(request) {
@@ -124,8 +166,9 @@ async function handleLogin(request, response) {
 
   let player = await storage.getPlayerByTelegramId(telegramUser.id);
   const isNewPlayer = !player;
+  const referral = isNewPlayer ? await resolveReferralCode(referralCode, telegramUser) : null;
   if (!player) {
-    player = createNewPlayer(telegramUser, referralCode);
+    player = createNewPlayer(telegramUser, referral?.referralCode);
   } else {
     player.username = telegramUser.username || [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(' ') || player.username;
     player.avatarUrl = telegramUser.photo_url ?? player.avatarUrl;
@@ -134,9 +177,15 @@ async function handleLogin(request, response) {
 
   applyEnergyRegen(player);
   await storage.savePlayer(player);
+  if (referral?.inviter) {
+    referral.inviter.invitedCount += 1;
+    await storage.savePlayer(referral.inviter);
+    await trackEvent('referral_signup', referral.inviter, {
+      invitedPlayerId: player.id,
+    });
+  }
   await trackEvent(isNewPlayer ? 'signup' : 'login', player, {
-    telegramId: player.telegramId,
-    hasReferral: Boolean(referralCode),
+    hasReferral: Boolean(referral?.referralCode),
     languageCode: player.languageCode,
   });
 

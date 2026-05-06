@@ -47,6 +47,19 @@ Server events are written to `analytics_events`. Current tracked events:
 - `claim_reward`
 - `level_up`
 - `trophy_created`
+- `referral_signup`
+
+Analytics payloads should avoid raw Telegram ids, bot tokens, access tokens, and other secrets. Store only the minimum event context needed for product and fraud analysis.
+
+## Referral Safety
+
+Referral links use the Telegram Mini App start parameter:
+
+```text
+https://t.me/DotaGiftBot?startapp=<referralCode>
+```
+
+The server only accepts referral codes that match the internal `ref_...` format, ignores self-referrals, and stores a referral only when the inviter already exists.
 
 The protected endpoint `/api/admin/stats` returns player totals, 24-hour activity, game totals, economy summary, and event counts. Call it with:
 

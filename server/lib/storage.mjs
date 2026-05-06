@@ -35,6 +35,11 @@ export class JsonFileStorage {
     return Object.values(this.data.players).find((player) => player.telegramId === String(telegramId)) ?? null;
   }
 
+  async getPlayerByReferralCode(referralCode) {
+    await this.ready;
+    return Object.values(this.data.players).find((player) => player.referralCode === referralCode) ?? null;
+  }
+
   async savePlayer(player) {
     await this.ready;
     this.data.players[player.id] = { ...player, updatedAt: new Date().toISOString() };

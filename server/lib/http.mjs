@@ -6,10 +6,13 @@ export class HttpError extends Error {
   }
 }
 
-export async function readJsonBody(request) {
+export async function readJsonBody(request, maxBytes = 64 * 1024) {
   const chunks = [];
+  let size = 0;
 
   for await (const chunk of request) {
+    size += chunk.length;
+    if (size > maxBytes) throw new HttpError(413, 'REQUEST_TOO_LARGE', 'Request body is too large.');
     chunks.push(chunk);
   }
 
