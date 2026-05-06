@@ -1,4 +1,5 @@
 import pg from 'pg';
+import crypto from 'node:crypto';
 import { GAME_BALANCE, getRewardsTable } from '../config/game-config.mjs';
 
 const { Pool } = pg;
@@ -240,5 +241,88 @@ export class PgStorage {
   async listPlayers() {
     const result = await this.pool.query('SELECT * FROM players ORDER BY level DESC, xp DESC LIMIT 250');
     return Promise.all(result.rows.map((row) => this.hydratePlayer(row)));
+  }
+
+  async recordAnalyticsEvent(event) {
+    const id = event.id ?? `evt_${crypto.randomUUID()}`;
+    const createdAt = event.createdAt ?? new Date().toISOString();
+    await this.pool.query(
+      `
+        INSERT INTO analytics_events (id, player_id, event_type, payload, created_at)
+        VALUES ($1, $2, $3, $4, $5)
+      `,
+      [id, event.playerId ?? null, event.eventType, JSON.stringify(event.payload ?? {}), createdAt],
+    );
+
+    return {
+      id,
+      playerId: event.playerId ?? null,
+      eventType: event.eventType,
+      payload: event.payload ?? {},
+      createdAt,
+    };
+  }
+
+  async getAdminStats() {
+    const [playersResult, gameResult, eventsResult] = await Promise.all([
+      this.pool.query(`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE created_at >= now() - interval '24 hours')::int AS new_24h,
+          COALESCE(ROUND(AVG(level)::numeric, 1), 0)::float AS average_level,
+          COALESCE(SUM(energy_current), 0)::int AS total_energy,
+          COALESCE(ROUND(AVG(energy_current)::numeric, 1), 0)::float AS average_energy
+        FROM players
+      `),
+      this.pool.query(`
+        SELECT
+          COALESCE(SUM(stats_created), 0)::int AS cards_created,
+          COALESCE(SUM(stats_merged), 0)::int AS cards_merged,
+          COALESCE(SUM(stats_deleted), 0)::int AS cards_deleted,
+          COALESCE(SUM(stats_trophies), 0)::int AS trophies
+        FROM players
+      `),
+      this.pool.query(`
+        SELECT event_type, COUNT(*)::int AS count
+        FROM analytics_events
+        WHERE created_at >= now() - interval '24 hours'
+        GROUP BY event_type
+      `),
+    ]);
+
+    const activeResult = await this.pool.query(`
+      SELECT COUNT(DISTINCT player_id)::int AS active_24h
+      FROM analytics_events
+      WHERE created_at >= now() - interval '24 hours' AND player_id IS NOT NULL
+    `);
+
+    const byType24h = Object.fromEntries(eventsResult.rows.map((row) => [row.event_type, row.count]));
+    const total24h = eventsResult.rows.reduce((sum, row) => sum + row.count, 0);
+    const players = playersResult.rows[0];
+    const game = gameResult.rows[0];
+
+    return {
+      players: {
+        total: players.total,
+        new24h: players.new_24h,
+        active24h: activeResult.rows[0].active_24h,
+        averageLevel: players.average_level,
+      },
+      game: {
+        cardsCreated: game.cards_created,
+        cardsMerged: game.cards_merged,
+        cardsDeleted: game.cards_deleted,
+        trophies: game.trophies,
+      },
+      economy: {
+        totalEnergy: players.total_energy,
+        averageEnergy: players.average_energy,
+      },
+      events: {
+        total24h,
+        byType24h,
+      },
+      serverTime: new Date().toISOString(),
+    };
   }
 }

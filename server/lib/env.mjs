@@ -25,6 +25,7 @@ export function readEnv() {
     clientOrigin: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173',
     telegramBotToken: process.env.TELEGRAM_BOT_TOKEN ?? '',
     jwtSecret: process.env.APP_JWT_SECRET ?? 'dev-secret-change-me',
+    adminToken: process.env.ADMIN_TOKEN ?? '',
     allowDevAuth: process.env.ALLOW_DEV_AUTH !== 'false',
     devDbPath: process.env.DEV_DB_PATH ?? 'server/data/dev-db.json',
     databaseUrl: process.env.DATABASE_URL ?? '',

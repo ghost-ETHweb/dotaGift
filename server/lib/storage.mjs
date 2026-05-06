@@ -4,7 +4,7 @@ import path from 'node:path';
 export class JsonFileStorage {
   constructor(filePath) {
     this.filePath = filePath;
-    this.data = { players: {} };
+    this.data = { players: {}, analyticsEvents: [] };
     this.ready = this.load();
   }
 
@@ -12,6 +12,8 @@ export class JsonFileStorage {
     try {
       const raw = await fs.readFile(this.filePath, 'utf8');
       this.data = JSON.parse(raw);
+      this.data.players ??= {};
+      this.data.analyticsEvents ??= [];
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
       await this.flush();
@@ -43,5 +45,57 @@ export class JsonFileStorage {
   async listPlayers() {
     await this.ready;
     return Object.values(this.data.players);
+  }
+
+  async recordAnalyticsEvent(event) {
+    await this.ready;
+    const analyticsEvent = {
+      id: event.id,
+      playerId: event.playerId ?? null,
+      eventType: event.eventType,
+      payload: event.payload ?? {},
+      createdAt: event.createdAt ?? new Date().toISOString(),
+    };
+
+    this.data.analyticsEvents.push(analyticsEvent);
+    this.data.analyticsEvents = this.data.analyticsEvents.slice(-5000);
+    await this.flush();
+    return analyticsEvent;
+  }
+
+  async getAdminStats() {
+    await this.ready;
+    const players = Object.values(this.data.players);
+    const now = Date.now();
+    const dayAgo = now - 24 * 60 * 60 * 1000;
+    const events24h = this.data.analyticsEvents.filter((event) => Date.parse(event.createdAt) >= dayAgo);
+    const eventsByType = events24h.reduce((acc, event) => {
+      acc[event.eventType] = (acc[event.eventType] ?? 0) + 1;
+      return acc;
+    }, {});
+
+    return {
+      players: {
+        total: players.length,
+        new24h: players.filter((player) => Date.parse(player.createdAt ?? 0) >= dayAgo).length,
+        active24h: new Set(events24h.map((event) => event.playerId).filter(Boolean)).size,
+        averageLevel: players.length ? Math.round((players.reduce((sum, player) => sum + player.level, 0) / players.length) * 10) / 10 : 0,
+      },
+      game: {
+        cardsCreated: players.reduce((sum, player) => sum + player.stats.created, 0),
+        cardsMerged: players.reduce((sum, player) => sum + player.stats.merged, 0),
+        cardsDeleted: players.reduce((sum, player) => sum + player.stats.deleted, 0),
+        trophies: players.reduce((sum, player) => sum + player.trophies.length, 0),
+      },
+      economy: {
+        totalEnergy: players.reduce((sum, player) => sum + player.energy.current, 0),
+        averageEnergy: players.length ? Math.round((players.reduce((sum, player) => sum + player.energy.current, 0) / players.length) * 10) / 10 : 0,
+      },
+      events: {
+        total24h: events24h.length,
+        byType24h: eventsByType,
+      },
+      serverTime: new Date().toISOString(),
+    };
   }
 }

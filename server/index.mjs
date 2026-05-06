@@ -1,4 +1,5 @@
 import http from 'node:http';
+import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { readEnv } from './lib/env.mjs';
 import { HttpError, notFound, readJsonBody, sendJson } from './lib/http.mjs';
@@ -34,7 +35,7 @@ function corsHeaders(request) {
 
   return {
     'access-control-allow-origin': allowedOrigin,
-    'access-control-allow-headers': 'content-type, authorization',
+    'access-control-allow-headers': 'content-type, authorization, x-admin-token',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
     'access-control-max-age': '86400',
     vary: 'origin',
@@ -47,6 +48,40 @@ function getPath(request) {
 
 function getUrl(request) {
   return new URL(request.url ?? '/', `http://${request.headers.host}`);
+}
+
+async function trackEvent(eventType, player, payload = {}) {
+  try {
+    await storage.recordAnalyticsEvent({
+      id: `evt_${crypto.randomUUID()}`,
+      playerId: player?.id ?? null,
+      eventType,
+      payload,
+      createdAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error(`Analytics event failed: ${eventType}`, error);
+  }
+}
+
+async function trackLevelUp(player, result) {
+  if (!result.levelUp) return;
+  await trackEvent('level_up', player, {
+    level: result.levelUp.newLevel,
+    rewardIds: result.levelUp.rewards.map((reward) => reward.id),
+  });
+}
+
+function assertAdminAccess(request) {
+  if (!env.adminToken) throw new HttpError(503, 'ADMIN_NOT_CONFIGURED', 'Admin access is not configured.');
+
+  const authHeader = request.headers.authorization ?? '';
+  const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : '';
+  const headerValue = request.headers['x-admin-token'];
+  const headerToken = Array.isArray(headerValue) ? headerValue[0] : headerValue;
+  const token = bearerToken || headerToken;
+
+  if (token !== env.adminToken) throw new HttpError(401, 'ADMIN_UNAUTHORIZED', 'Valid admin token is required.');
 }
 
 async function getAuthedPlayer(request) {
@@ -86,6 +121,7 @@ async function handleLogin(request, response) {
   }
 
   let player = await storage.getPlayerByTelegramId(telegramUser.id);
+  const isNewPlayer = !player;
   if (!player) {
     player = createNewPlayer(telegramUser, body.referralCode);
   } else {
@@ -96,6 +132,11 @@ async function handleLogin(request, response) {
 
   applyEnergyRegen(player);
   await storage.savePlayer(player);
+  await trackEvent(isNewPlayer ? 'signup' : 'login', player, {
+    telegramId: player.telegramId,
+    hasReferral: Boolean(body.referralCode),
+    languageCode: player.languageCode,
+  });
 
   sendJson(
     response,
@@ -133,15 +174,47 @@ async function handleGameState(request, response) {
 async function handleCreateCard(request, response) {
   const body = await readJsonBody(request);
   const player = await getAuthedPlayer(request);
+  const previousCardIds = new Set(player.board.filter(Boolean).map((card) => card.id));
   const result = createCardAction(player, body.clientActionId);
+  const createdCard = player.board.filter(Boolean).find((card) => !previousCardIds.has(card.id));
   await saveAndSendPlayer(response, request, player, result);
+  await trackEvent('create_card', player, {
+    xpDelta: result.xpDelta,
+    energyCurrent: result.energy.current,
+    card: createdCard
+      ? {
+          race: createdCard.race,
+          rarity: createdCard.rarity,
+          stars: createdCard.stars,
+          boardIndex: createdCard.boardIndex,
+        }
+      : null,
+  });
+  await trackLevelUp(player, result);
 }
 
 async function handleMergeCards(request, response) {
   const body = await readJsonBody(request);
   const player = await getAuthedPlayer(request);
+  const previousTrophyCount = player.trophies.length;
   const result = mergeCardsAction(player, body.clientActionId, body.firstCardId, body.secondCardId);
+  const createdTrophy = player.trophies.length > previousTrophyCount ? player.trophies[0] : null;
   await saveAndSendPlayer(response, request, player, result);
+  await trackEvent('merge_cards', player, {
+    xpDelta: result.xpDelta,
+    trophies: player.trophies.length,
+    energyCurrent: result.energy.current,
+  });
+  if (createdTrophy) {
+    await trackEvent('trophy_created', player, {
+      trophies: player.trophies.length,
+      xpDelta: result.xpDelta,
+      race: createdTrophy.race,
+      rarity: createdTrophy.rarity,
+      stars: createdTrophy.stars,
+    });
+  }
+  await trackLevelUp(player, result);
 }
 
 async function handleMoveCard(request, response) {
@@ -156,6 +229,11 @@ async function handleDeleteCard(request, response) {
   const player = await getAuthedPlayer(request);
   const result = deleteCardAction(player, body.clientActionId, body.cardId);
   await saveAndSendPlayer(response, request, player, result);
+  await trackEvent('delete_card', player, {
+    xpDelta: result.xpDelta,
+    energyCurrent: result.energy.current,
+  });
+  await trackLevelUp(player, result);
 }
 
 async function handleClaimReward(request, response) {
@@ -163,6 +241,17 @@ async function handleClaimReward(request, response) {
   const player = await getAuthedPlayer(request);
   const result = claimRewardAction(player, body.rewardId);
   await saveAndSendPlayer(response, request, player, result);
+  await trackEvent('claim_reward', player, {
+    rewardId: result.reward.id,
+    rewardType: result.reward.type,
+    amount: result.reward.amount ?? null,
+  });
+}
+
+async function handleAdminStats(request, response) {
+  assertAdminAccess(request);
+  const stats = await storage.getAdminStats();
+  sendJson(response, 200, stats, corsHeaders(request));
 }
 
 async function handleLeaderboard(request, response) {
@@ -269,6 +358,7 @@ export async function route(request, response) {
   if (method === 'GET' && path === '/api/leaderboard') return handleLeaderboard(request, response);
   if (method === 'GET' && path === '/api/trophies') return handleTrophies(request, response);
   if (method === 'GET' && path === '/api/referrals/stats') return handleReferralStats(request, response);
+  if (method === 'GET' && path === '/api/admin/stats') return handleAdminStats(request, response);
 
   return notFound();
 }

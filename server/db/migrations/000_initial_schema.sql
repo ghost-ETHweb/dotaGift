@@ -1,4 +1,4 @@
-CREATE TABLE players (
+CREATE TABLE IF NOT EXISTS players (
   id TEXT PRIMARY KEY,
   telegram_id TEXT NOT NULL UNIQUE,
   username TEXT NOT NULL,
@@ -23,7 +23,7 @@ CREATE TABLE players (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE cards (
+CREATE TABLE IF NOT EXISTS cards (
   id TEXT PRIMARY KEY,
   player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
   template_id TEXT NOT NULL,
@@ -41,7 +41,7 @@ CREATE TABLE cards (
   CONSTRAINT cards_board_slot_unique UNIQUE (player_id, board_index)
 );
 
-CREATE TABLE reward_claims (
+CREATE TABLE IF NOT EXISTS reward_claims (
   id TEXT PRIMARY KEY,
   player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
   reward_id TEXT NOT NULL,
@@ -52,7 +52,7 @@ CREATE TABLE reward_claims (
   CONSTRAINT reward_claim_once UNIQUE (player_id, reward_id)
 );
 
-CREATE TABLE action_ledger (
+CREATE TABLE IF NOT EXISTS action_ledger (
   id TEXT PRIMARY KEY,
   player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
   client_action_id TEXT NOT NULL,
@@ -65,7 +65,7 @@ CREATE TABLE action_ledger (
   CONSTRAINT action_once UNIQUE (player_id, client_action_id)
 );
 
-CREATE TABLE referrals (
+CREATE TABLE IF NOT EXISTS referrals (
   id TEXT PRIMARY KEY,
   inviter_player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
   invited_player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
@@ -77,18 +77,7 @@ CREATE TABLE referrals (
   CONSTRAINT referral_once UNIQUE (inviter_player_id, invited_player_id, depth)
 );
 
-CREATE TABLE analytics_events (
-  id TEXT PRIMARY KEY,
-  player_id TEXT REFERENCES players(id) ON DELETE SET NULL,
-  event_type TEXT NOT NULL,
-  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX cards_player_state_idx ON cards (player_id, state);
-CREATE INDEX action_ledger_player_created_idx ON action_ledger (player_id, created_at DESC);
-CREATE INDEX referrals_inviter_idx ON referrals (inviter_player_id, depth, status);
-CREATE INDEX leaderboard_level_xp_idx ON players (level DESC, xp DESC);
-CREATE INDEX analytics_events_created_idx ON analytics_events (created_at DESC);
-CREATE INDEX analytics_events_type_created_idx ON analytics_events (event_type, created_at DESC);
-CREATE INDEX analytics_events_player_created_idx ON analytics_events (player_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS cards_player_state_idx ON cards (player_id, state);
+CREATE INDEX IF NOT EXISTS action_ledger_player_created_idx ON action_ledger (player_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS referrals_inviter_idx ON referrals (inviter_player_id, depth, status);
+CREATE INDEX IF NOT EXISTS leaderboard_level_xp_idx ON players (level DESC, xp DESC);
