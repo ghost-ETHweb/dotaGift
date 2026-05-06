@@ -3,7 +3,7 @@
 ## Recommended MVP Setup
 
 - Frontend: Vercel
-- Backend: Render Web Service
+- Backend: Vercel Serverless Functions
 - Database: Neon or Supabase PostgreSQL
 - Bot: `@DotaGiftBot`
 
@@ -17,23 +17,14 @@ DATABASE_URL=postgresql://...
 
 Use a connection string with SSL enabled when the provider requires it.
 
-## 2. Deploy Backend On Render
+## 2. Deploy On Vercel
 
-Create a Render web service from the GitHub repo.
+Create a Vercel project from the GitHub repo. The Vite frontend and `/api/*` backend functions deploy together.
 
-Use:
-
-```text
-Build Command: npm install
-Start Command: npm run db:migrate && node server/index.mjs
-Health Check Path: /api/health
-```
-
-Required env vars:
+Required Vercel env vars:
 
 ```text
 NODE_ENV=production
-PORT=10000
 ALLOW_DEV_AUTH=false
 CLIENT_ORIGIN=https://your-vercel-app.vercel.app
 TELEGRAM_BOT_TOKEN=<set in Render only>
@@ -43,20 +34,20 @@ DATABASE_URL=<postgres connection string>
 
 Never commit `TELEGRAM_BOT_TOKEN`, `APP_JWT_SECRET`, or `DATABASE_URL`.
 
-## 3. Deploy Frontend On Vercel
-
-Create a Vercel project from the same GitHub repo.
-
-Required env var:
-
-```text
-VITE_API_BASE_URL=https://your-render-service.onrender.com
-```
-
-Deploy and copy the frontend URL:
+Deploy and copy the app URL:
 
 ```text
 https://your-vercel-app.vercel.app
+```
+
+If frontend and API are hosted on the same Vercel project, `VITE_API_BASE_URL` can be omitted in production.
+
+## 3. Run Database Migration
+
+Run the SQL in `server/db/schema.sql` against Neon, or run locally with `DATABASE_URL`:
+
+```bash
+npm run db:migrate
 ```
 
 ## 4. Configure Telegram Bot
@@ -65,7 +56,7 @@ In `@BotFather`:
 
 1. Open `@DotaGiftBot`.
 2. Set bot description/about/photo.
-3. Configure Mini App/Web App URL to the Vercel frontend URL.
+3. Configure Mini App/Web App URL to the Vercel app URL.
 4. For production auth, make sure backend env has the active bot token.
 
 Important: if the bot token was shared anywhere outside private env storage, revoke it in BotFather before public launch.

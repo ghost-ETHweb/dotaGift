@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { fileURLToPath } from 'node:url';
 import { readEnv } from './lib/env.mjs';
 import { HttpError, notFound, readJsonBody, sendJson } from './lib/http.mjs';
 import { createAccessToken, verifyAccessToken } from './lib/token.mjs';
@@ -232,7 +233,7 @@ async function handleReferralStats(request, response) {
   );
 }
 
-async function route(request, response) {
+export async function route(request, response) {
   const path = getPath(request);
   const method = request.method ?? 'GET';
 
@@ -272,7 +273,7 @@ async function route(request, response) {
   return notFound();
 }
 
-const server = http.createServer(async (request, response) => {
+export async function handleRequest(request, response) {
   try {
     await route(request, response);
   } catch (error) {
@@ -283,8 +284,12 @@ const server = http.createServer(async (request, response) => {
     if (!(error instanceof HttpError)) console.error(error);
     sendJson(response, status, { error: { code, message }, serverTime: new Date().toISOString() }, corsHeaders(request));
   }
-});
+}
 
-server.listen(env.port, () => {
-  console.log(`Dota Gift API listening on http://localhost:${env.port}`);
-});
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const server = http.createServer(handleRequest);
+
+  server.listen(env.port, () => {
+    console.log(`Dota Gift API listening on http://localhost:${env.port}`);
+  });
+}
