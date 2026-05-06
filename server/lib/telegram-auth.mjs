@@ -8,6 +8,7 @@ export function parseTelegramInitData(initData) {
     hash: params.get('hash'),
     authDate: Number(params.get('auth_date') ?? 0),
     user: userRaw ? JSON.parse(userRaw) : null,
+    startParam: params.get('start_param'),
     params,
   };
 }
@@ -39,7 +40,7 @@ export function validateTelegramInitData(initData, botToken, maxAgeSeconds = 60 
   const isValid = crypto.timingSafeEqual(Buffer.from(incomingHash, 'hex'), Buffer.from(expectedHash, 'hex'));
   if (!isValid) return { ok: false, reason: 'INVALID_HASH' };
 
-  return { ok: true, user: parsed.user };
+  return { ok: true, user: parsed.user, startParam: parsed.startParam };
 }
 
 export function createDevTelegramUser() {

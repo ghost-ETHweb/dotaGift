@@ -18,6 +18,7 @@ export function ProfilePage() {
   const avatarRace = raceConfig[selectedAvatarRace];
   const [openPanel, setOpenPanel] = useState<ProfilePanel | null>('settings');
   const referralProgress = Math.min(100, (player.activeInvitedCount / 10) * 100);
+  const referralLink = `https://t.me/DotaGiftBot?startapp=${encodeURIComponent(player.referralCode)}`;
   const t = useT();
   const languageOptions: Array<{ id: AppLanguage; label: string }> = [
     { id: 'en', label: t('english') },
@@ -99,7 +100,7 @@ export function ProfilePage() {
             <div className="grid gap-3">
               <div className="rounded-md border border-white/10 bg-black/20 p-3">
                 <p className="game-caption text-xs text-zinc-400">{t('referralLink')}</p>
-                <p className="game-number mt-2 break-all text-sm text-emerald-100">t.me/dotagift_bot/app?startapp=ref_demo_player</p>
+                <p className="game-number mt-2 break-all text-sm text-emerald-100">{referralLink}</p>
               </div>
 
               <div className="grid grid-cols-2 gap-2">

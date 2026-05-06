@@ -105,6 +105,7 @@ async function saveAndSendPlayer(response, request, player, payload) {
 async function handleLogin(request, response) {
   const body = await readJsonBody(request);
   let telegramUser;
+  let referralCode = body.referralCode;
 
   if (body.initData) {
     const validation = validateTelegramInitData(body.initData, env.telegramBotToken);
@@ -113,6 +114,7 @@ async function handleLogin(request, response) {
       telegramUser = createDevTelegramUser();
     } else {
       telegramUser = validation.user;
+      referralCode = referralCode || validation.startParam;
     }
   } else if (env.allowDevAuth) {
     telegramUser = createDevTelegramUser();
@@ -123,7 +125,7 @@ async function handleLogin(request, response) {
   let player = await storage.getPlayerByTelegramId(telegramUser.id);
   const isNewPlayer = !player;
   if (!player) {
-    player = createNewPlayer(telegramUser, body.referralCode);
+    player = createNewPlayer(telegramUser, referralCode);
   } else {
     player.username = telegramUser.username || [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(' ') || player.username;
     player.avatarUrl = telegramUser.photo_url ?? player.avatarUrl;
@@ -134,7 +136,7 @@ async function handleLogin(request, response) {
   await storage.savePlayer(player);
   await trackEvent(isNewPlayer ? 'signup' : 'login', player, {
     telegramId: player.telegramId,
-    hasReferral: Boolean(body.referralCode),
+    hasReferral: Boolean(referralCode),
     languageCode: player.languageCode,
   });
 
@@ -308,7 +310,7 @@ async function handleReferralStats(request, response) {
     200,
     {
       referralCode: player.referralCode,
-      referralLink: `https://t.me/dotagift_bot/app?startapp=${player.referralCode}`,
+      referralLink: `https://t.me/DotaGiftBot?startapp=${encodeURIComponent(player.referralCode)}`,
       level1SharePercent: 5,
       level2SharePercent: 2,
       invitedCount: player.invitedCount,

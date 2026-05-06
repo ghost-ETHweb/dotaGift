@@ -4,6 +4,7 @@ import { useGameStore } from '../store/gameStore';
 export function ReferralPage() {
   const player = useGameStore((state) => state.player);
   const progress = Math.min(100, (player.activeInvitedCount / 10) * 100);
+  const referralLink = `https://t.me/DotaGiftBot?startapp=${encodeURIComponent(player.referralCode)}`;
 
   return (
     <>
@@ -12,7 +13,7 @@ export function ReferralPage() {
         <div className="rounded-lg border border-white/10 bg-gradient-to-br from-emerald-500/16 to-sky-500/10 p-4">
           <p className="game-caption text-sm text-zinc-300">Referral link</p>
           <p className="game-number mt-2 break-all rounded-md bg-black/25 p-3 text-sm text-emerald-100">
-            t.me/dotagift_bot/app?startapp=ref_demo_player
+            {referralLink}
           </p>
         </div>
         <div className="grid grid-cols-3 gap-2">

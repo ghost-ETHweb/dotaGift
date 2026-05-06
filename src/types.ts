@@ -47,6 +47,7 @@ export interface PlayerProfile {
   telegramId: string;
   username: string;
   avatarUrl?: string;
+  referralCode: string;
   level: number;
   xp: number;
   xpToNextLevel: number;

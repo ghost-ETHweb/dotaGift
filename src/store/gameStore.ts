@@ -63,6 +63,7 @@ const initialPlayer: PlayerProfile = {
   id: 'demo-player',
   telegramId: 'demo',
   username: 'Telegram Player',
+  referralCode: 'ref_demo_player',
   level: 1,
   xp: 260,
   xpToNextLevel: xpToNextLevel(1),

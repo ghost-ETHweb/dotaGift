@@ -109,6 +109,7 @@ export function toPlayerProfile(player) {
     telegramId: player.telegramId,
     username: player.username,
     avatarUrl: player.avatarUrl,
+    referralCode: player.referralCode,
     level: player.level,
     xp: player.xp,
     xpToNextLevel: xpToNextLevel(player.level),
