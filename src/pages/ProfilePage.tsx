@@ -19,7 +19,7 @@ export function ProfilePage() {
   const updateDisplayName = useGameStore((state) => state.updateDisplayName);
   const language = useGameStore((state) => state.language);
   const setLanguage = useGameStore((state) => state.setLanguage);
-  const avatarRace = raceConfig[selectedAvatarRace];
+  const avatarRace = raceConfig[selectedAvatarRace] ?? raceConfig.orcs;
   const [openPanel, setOpenPanel] = useState<ProfilePanel | null>('settings');
   const [isNameModalOpen, setIsNameModalOpen] = useState(false);
   const [draftDisplayName, setDraftDisplayName] = useState(player.username);

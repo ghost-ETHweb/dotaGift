@@ -42,8 +42,10 @@ const CardFace = memo(function CardFace({ card, muted = false }: { card: GameCar
       style={{ borderColor: `${race.accent}d8` }}
     >
       <div className="absolute inset-x-0 top-0 h-1" style={{ backgroundColor: race.accent }} />
-      <div className="grid min-h-0 flex-1 place-items-center pt-1">
-        <span className="game-title text-[clamp(1.25rem,6.5vw,1.85rem)] leading-none text-white">{card.imageUrl}</span>
+      <div className="flex min-h-0 flex-1 items-center justify-center pb-1 pt-2">
+        <span className="game-title block max-w-full overflow-hidden text-center text-[clamp(1.15rem,5.6vw,1.8rem)] leading-none text-white">
+          {card.imageUrl}
+        </span>
       </div>
       <div className="grid place-items-center">
         <span className="game-number rounded-full bg-amber-200 px-1.5 py-0.5 text-[11px] leading-none text-zinc-950">
@@ -151,6 +153,7 @@ export function GamePage() {
   const dragPreviewRef = useRef<HTMLDivElement | null>(null);
   const dragPoint = useRef({ x: 0, y: 0 });
   const dragFrame = useRef<number | null>(null);
+  const dragHoldTimer = useRef<number | null>(null);
   const currentDropIndex = useRef<number | null>(null);
   const isCreateDisabled = energy.current < energy.createCost || board.every(Boolean);
   const matchSource = dragState?.card ?? actionCard;
@@ -163,9 +166,14 @@ export function GamePage() {
     telegram.enableVerticalSwipes();
     document.body.classList.remove('drag-lock');
   };
+  const clearHoldTimer = () => {
+    if (dragHoldTimer.current !== null) window.clearTimeout(dragHoldTimer.current);
+    dragHoldTimer.current = null;
+  };
   const resetDrag = () => {
     if (dragFrame.current !== null) window.cancelAnimationFrame(dragFrame.current);
     dragFrame.current = null;
+    clearHoldTimer();
     pendingDrag.current = null;
     hasStartedDrag.current = false;
     currentDropIndex.current = null;
@@ -183,8 +191,61 @@ export function GamePage() {
       dragPreviewRef.current.style.transform = `translate3d(${dragPoint.current.x - width / 2}px, ${dragPoint.current.y - height / 2}px, 0)`;
     });
   };
+  const startPendingDrag = (card: GameCard, pointerId: number, x: number, y: number, width: number, height: number) => {
+    pendingDrag.current = {
+      card,
+      pointerId,
+      x,
+      y,
+      startX: x,
+      startY: y,
+      width,
+      height,
+    };
+  };
+  const beginDrag = (x: number, y: number) => {
+    const pending = pendingDrag.current;
+    if (!pending || hasStartedDrag.current) return;
 
-  useEffect(() => () => unlockDrag(), []);
+    clearHoldTimer();
+    hasStartedDrag.current = true;
+    lockDrag();
+    setActionCard(null);
+    setDragState({ ...pending, x, y });
+    movePreview(x, y, pending.width, pending.height);
+  };
+  const updateDrag = (x: number, y: number) => {
+    const pending = pendingDrag.current;
+    if (!pending || !hasStartedDrag.current) return;
+
+    movePreview(x, y, pending.width, pending.height);
+    const nextDropIndex = getSlotIndexAtPoint(x, y);
+    if (nextDropIndex !== currentDropIndex.current) {
+      currentDropIndex.current = nextDropIndex;
+      setDropIndex(nextDropIndex);
+    }
+  };
+  const finishDrag = (x: number, y: number, fallbackCard: GameCard) => {
+    const pending = pendingDrag.current;
+
+    if (hasStartedDrag.current && pending) {
+      handleDrop(pending.card, getSlotIndexAtPoint(x, y));
+    } else if (pending) {
+      setActionCard(fallbackCard);
+    }
+
+    resetDrag();
+  };
+
+  useEffect(
+    () => () => {
+      if (dragFrame.current !== null) window.cancelAnimationFrame(dragFrame.current);
+      clearHoldTimer();
+      telegram.enableVerticalSwipes();
+      document.body.classList.remove('drag-lock');
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!actionCard) return;
@@ -210,13 +271,13 @@ export function GamePage() {
     <>
       <Header />
       <section className="rounded-lg border border-white/10 bg-white/[0.045] p-1.5 shadow-2xl">
-        <div className="mb-1.5 rounded-md border border-cyan-200/18 bg-cyan-300/[0.055] px-2 py-1.5 shadow-[0_0_22px_rgba(34,211,238,0.1)]">
-          <h2 className="game-title text-sm text-cyan-50 drop-shadow-[0_0_8px_rgba(34,211,238,0.28)]">{t('battleBoard')}</h2>
-          <p className="game-caption mt-0.5 text-[10px] leading-3 text-cyan-100/78">{t('boardHint')}</p>
+        <div className="mb-1.5 flex items-center justify-between gap-2 rounded-md border border-cyan-200/18 bg-cyan-300/[0.055] px-2 py-1.5 shadow-[0_0_22px_rgba(34,211,238,0.1)]">
+          <h2 className="game-title shrink-0 text-sm text-cyan-50 drop-shadow-[0_0_8px_rgba(34,211,238,0.28)]">{t('battleBoard')}</h2>
+          <p className="game-caption text-right text-[10px] leading-3 text-cyan-100/78">{t('boardHint')}</p>
         </div>
         <div
-          className="mx-auto grid aspect-square touch-pan-y grid-cols-4 gap-1"
-          style={{ width: 'min(100%, clamp(220px, calc(100dvh - 400px), 400px))' }}
+          className="mx-auto grid aspect-square touch-none grid-cols-4 gap-1"
+          style={{ width: 'min(100%, 430px)' }}
         >
           {board.map((card, index) => {
             const isSource = Boolean(matchSource && card?.id === matchSource.id);
@@ -235,67 +296,80 @@ export function GamePage() {
                   <div
                     className="relative z-10 h-full touch-none"
                     onPointerDown={(event) => {
+                      if (event.pointerType !== 'mouse') return;
                       event.stopPropagation();
                       const rect = event.currentTarget.getBoundingClientRect();
                       hasStartedDrag.current = false;
-                      pendingDrag.current = {
-                        card,
-                        pointerId: event.pointerId,
-                        x: event.clientX,
-                        y: event.clientY,
-                        startX: event.clientX,
-                        startY: event.clientY,
-                        width: rect.width,
-                        height: rect.height,
-                      };
+                      startPendingDrag(card, event.pointerId, event.clientX, event.clientY, rect.width, rect.height);
                     }}
                     onPointerMove={(event) => {
+                      if (event.pointerType !== 'mouse') return;
                       const pending = pendingDrag.current;
                       if (!pending || pending.pointerId !== event.pointerId) return;
 
-                      const deltaX = event.clientX - pending.startX;
-                      const deltaY = event.clientY - pending.startY;
-                      const distance = Math.hypot(deltaX, deltaY);
+                      const distance = Math.hypot(event.clientX - pending.startX, event.clientY - pending.startY);
                       if (!hasStartedDrag.current) {
                         if (distance < 9) return;
-                        hasStartedDrag.current = true;
                         event.currentTarget.setPointerCapture(event.pointerId);
-                        lockDrag();
-                        setActionCard(null);
-                        setDragState({ ...pending, x: event.clientX, y: event.clientY });
+                        beginDrag(event.clientX, event.clientY);
                       }
 
                       event.preventDefault();
-                      movePreview(event.clientX, event.clientY, pending.width, pending.height);
-
-                      const nextDropIndex = getSlotIndexAtPoint(event.clientX, event.clientY);
-                      if (nextDropIndex !== currentDropIndex.current) {
-                        currentDropIndex.current = nextDropIndex;
-                        setDropIndex(nextDropIndex);
-                      }
+                      updateDrag(event.clientX, event.clientY);
                     }}
                     onPointerUp={(event) => {
-                      const pending = pendingDrag.current;
-                      const targetIndex = getSlotIndexAtPoint(event.clientX, event.clientY);
+                      if (event.pointerType !== 'mouse') return;
 
-                      if (hasStartedDrag.current && pending) {
-                        event.preventDefault();
-                        handleDrop(pending.card, targetIndex);
-                      } else if (pending && pending.pointerId === event.pointerId) {
-                        setActionCard(card);
-                      }
+                      if (hasStartedDrag.current) event.preventDefault();
+                      finishDrag(event.clientX, event.clientY, card);
 
                       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
                         event.currentTarget.releasePointerCapture(event.pointerId);
                       }
-                      resetDrag();
                     }}
                     onPointerCancel={(event) => {
+                      if (event.pointerType !== 'mouse') return;
                       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
                         event.currentTarget.releasePointerCapture(event.pointerId);
                       }
                       resetDrag();
                     }}
+                    onTouchStart={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      const touch = event.changedTouches[0];
+                      if (!touch) return;
+
+                      telegram.disableVerticalSwipes();
+                      hasStartedDrag.current = false;
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      startPendingDrag(card, touch.identifier, touch.clientX, touch.clientY, rect.width, rect.height);
+                      clearHoldTimer();
+                      dragHoldTimer.current = window.setTimeout(() => beginDrag(touch.clientX, touch.clientY), 90);
+                    }}
+                    onTouchMove={(event) => {
+                      const pending = pendingDrag.current;
+                      if (!pending) return;
+                      const touch = Array.from(event.changedTouches).find((item) => item.identifier === pending.pointerId);
+                      if (!touch) return;
+
+                      const distance = Math.hypot(touch.clientX - pending.startX, touch.clientY - pending.startY);
+                      if (!hasStartedDrag.current && distance >= 3) beginDrag(touch.clientX, touch.clientY);
+                      if (!hasStartedDrag.current) return;
+
+                      event.preventDefault();
+                      updateDrag(touch.clientX, touch.clientY);
+                    }}
+                    onTouchEnd={(event) => {
+                      const pending = pendingDrag.current;
+                      if (!pending) return;
+                      const touch = Array.from(event.changedTouches).find((item) => item.identifier === pending.pointerId);
+                      if (!touch) return;
+
+                      event.preventDefault();
+                      finishDrag(touch.clientX, touch.clientY, card);
+                    }}
+                    onTouchCancel={() => resetDrag()}
                   >
                     <CardFace card={card} muted={dragState?.card.id === card.id} />
                   </div>

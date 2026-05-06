@@ -189,7 +189,7 @@ export const useGameStore = create<GameStore>((set, get) => {
           trophies: gameState.trophies,
           energy: gameState.energy,
           player: gameState.player,
-          selectedAvatarRace: gameState.player.selectedAvatarRace,
+          selectedAvatarRace: gameState.player.selectedAvatarRace ?? 'orcs',
           claimedRewardIds: gameState.claimedRewardIds,
           isBootstrapping: false,
           apiError: undefined,
