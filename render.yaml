@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: dota-gift-api
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm run db:migrate && node server/index.mjs
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: ALLOW_DEV_AUTH
+        value: false
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: APP_JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
