@@ -48,6 +48,7 @@ export interface PlayerProfile {
   username: string;
   avatarUrl?: string;
   referralCode: string;
+  selectedAvatarRace: CardRace;
   level: number;
   xp: number;
   xpToNextLevel: number;

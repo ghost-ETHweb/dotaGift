@@ -32,6 +32,7 @@ function playerRowToBase(row) {
     id: row.id,
     telegramId: row.telegram_id,
     username: row.username,
+    displayNameCustom: row.display_name_custom ?? false,
     avatarUrl: row.avatar_url ?? undefined,
     languageCode: row.language_code ?? undefined,
     referralCode: row.referral_code,
@@ -71,6 +72,22 @@ export class PgStorage {
       connectionString: databaseUrl,
       ssl: databaseUrl.includes('sslmode=require') ? { rejectUnauthorized: false } : undefined,
     });
+    this.ready = this.ensureSchema();
+  }
+
+  async ensureSchema() {
+    await this.pool.query(`
+      ALTER TABLE players
+        ADD COLUMN IF NOT EXISTS display_name_custom BOOLEAN NOT NULL DEFAULT false
+    `);
+    await this.pool.query('CREATE INDEX IF NOT EXISTS players_referred_by_idx ON players (referred_by)');
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        id TEXT PRIMARY KEY,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await this.pool.query("INSERT INTO schema_migrations (id) VALUES ('002_profile_and_referrals.sql') ON CONFLICT (id) DO NOTHING");
   }
 
   async hydratePlayer(row, client = this.pool) {
@@ -100,21 +117,31 @@ export class PgStorage {
   }
 
   async getPlayer(playerId) {
+    await this.ready;
     const result = await this.pool.query('SELECT * FROM players WHERE id = $1', [playerId]);
     return this.hydratePlayer(result.rows[0]);
   }
 
   async getPlayerByTelegramId(telegramId) {
+    await this.ready;
     const result = await this.pool.query('SELECT * FROM players WHERE telegram_id = $1', [String(telegramId)]);
     return this.hydratePlayer(result.rows[0]);
   }
 
   async getPlayerByReferralCode(referralCode) {
+    await this.ready;
     const result = await this.pool.query('SELECT * FROM players WHERE referral_code = $1', [referralCode]);
     return this.hydratePlayer(result.rows[0]);
   }
 
+  async listDirectReferrals(referralCode) {
+    await this.ready;
+    const result = await this.pool.query('SELECT * FROM players WHERE referred_by = $1 ORDER BY created_at DESC LIMIT 500', [referralCode]);
+    return Promise.all(result.rows.map((row) => this.hydratePlayer(row)));
+  }
+
   async savePlayer(player) {
+    await this.ready;
     const client = await this.pool.connect();
 
     try {
@@ -122,20 +149,21 @@ export class PgStorage {
       await client.query(
         `
           INSERT INTO players (
-            id, telegram_id, username, avatar_url, language_code, referral_code, referred_by, selected_avatar_race,
+            id, telegram_id, username, display_name_custom, avatar_url, language_code, referral_code, referred_by, selected_avatar_race,
             level, xp, energy_current, energy_max, energy_next_regen_at,
             invited_count, active_invited_count, referral_level,
             stats_created, stats_merged, stats_deleted, stats_trophies, created_at, updated_at
           )
           VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8,
-            $9, $10, $11, $12, $13,
-            $14, $15, $16,
-            $17, $18, $19, $20, COALESCE($21, now()), now()
+            $1, $2, $3, $4, $5, $6, $7, $8, $9,
+            $10, $11, $12, $13, $14,
+            $15, $16, $17,
+            $18, $19, $20, $21, COALESCE($22, now()), now()
           )
           ON CONFLICT (id) DO UPDATE SET
             telegram_id = EXCLUDED.telegram_id,
             username = EXCLUDED.username,
+            display_name_custom = EXCLUDED.display_name_custom,
             avatar_url = EXCLUDED.avatar_url,
             language_code = EXCLUDED.language_code,
             referral_code = EXCLUDED.referral_code,
@@ -159,6 +187,7 @@ export class PgStorage {
           player.id,
           player.telegramId,
           player.username,
+          player.displayNameCustom ?? false,
           player.avatarUrl ?? null,
           player.languageCode ?? null,
           player.referralCode,
@@ -244,11 +273,13 @@ export class PgStorage {
   }
 
   async listPlayers() {
+    await this.ready;
     const result = await this.pool.query('SELECT * FROM players ORDER BY level DESC, xp DESC LIMIT 250');
     return Promise.all(result.rows.map((row) => this.hydratePlayer(row)));
   }
 
   async recordAnalyticsEvent(event) {
+    await this.ready;
     const id = event.id ?? `evt_${crypto.randomUUID()}`;
     const createdAt = event.createdAt ?? new Date().toISOString();
     await this.pool.query(
@@ -269,6 +300,7 @@ export class PgStorage {
   }
 
   async getAdminStats() {
+    await this.ready;
     const [playersResult, gameResult, eventsResult] = await Promise.all([
       this.pool.query(`
         SELECT
@@ -328,6 +360,25 @@ export class PgStorage {
         byType24h,
       },
       serverTime: new Date().toISOString(),
+    };
+  }
+
+  async getReferralXpSummary(playerId) {
+    await this.ready;
+    const result = await this.pool.query(
+      `
+        SELECT
+          COALESCE(SUM((payload->>'amount')::int), 0)::int AS total_referral_xp,
+          COALESCE(SUM((payload->>'amount')::int) FILTER (WHERE created_at >= now() - interval '24 hours'), 0)::int AS xp_today
+        FROM analytics_events
+        WHERE player_id = $1 AND event_type = 'referral_xp'
+      `,
+      [playerId],
+    );
+
+    return {
+      xpToday: result.rows[0].xp_today,
+      totalReferralXp: result.rows[0].total_referral_xp,
     };
   }
 }

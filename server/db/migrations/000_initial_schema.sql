@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS players (
   id TEXT PRIMARY KEY,
   telegram_id TEXT NOT NULL UNIQUE,
   username TEXT NOT NULL,
+  display_name_custom BOOLEAN NOT NULL DEFAULT false,
   avatar_url TEXT,
   language_code TEXT,
   referral_code TEXT NOT NULL UNIQUE,

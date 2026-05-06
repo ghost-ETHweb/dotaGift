@@ -37,6 +37,7 @@ interface GameStore {
   clearApiError: () => void;
   setActiveTab: (tab: TabId) => void;
   setSelectedAvatarRace: (race: CardRace) => void;
+  updateDisplayName: (displayName: string) => Promise<void>;
   setLanguage: (language: AppLanguage) => void;
   setLanguageFromSystem: (languageCode?: string) => void;
   createCard: () => Promise<void>;
@@ -64,6 +65,7 @@ const initialPlayer: PlayerProfile = {
   telegramId: 'demo',
   username: 'Telegram Player',
   referralCode: 'ref_demo_player',
+  selectedAvatarRace: 'orcs',
   level: 1,
   xp: 260,
   xpToNextLevel: xpToNextLevel(1),
@@ -167,6 +169,7 @@ export const useGameStore = create<GameStore>((set, get) => {
           trophies: gameState.trophies,
           energy: gameState.energy,
           player: gameState.player,
+          selectedAvatarRace: gameState.player.selectedAvatarRace,
           claimedRewardIds: gameState.claimedRewardIds,
           isBootstrapping: false,
           apiError: undefined,
@@ -180,7 +183,30 @@ export const useGameStore = create<GameStore>((set, get) => {
     },
     clearApiError: () => set({ apiError: undefined }),
     setActiveTab: (tab) => set({ activeTab: tab }),
-    setSelectedAvatarRace: (race) => set({ selectedAvatarRace: race }),
+    setSelectedAvatarRace: (race) => {
+      const { accessToken, player } = get();
+      set({ selectedAvatarRace: race, player: { ...player, selectedAvatarRace: race } });
+      if (!accessToken) return;
+
+      void apiClient
+        .updateProfile(accessToken, { selectedAvatarRace: race })
+        .then((response) => set({ player: response.player, selectedAvatarRace: response.player.selectedAvatarRace, apiError: undefined }))
+        .catch((error) => set({ apiError: error instanceof Error ? error.message : 'Profile update failed.' }));
+    },
+    updateDisplayName: async (displayName) => {
+      const { accessToken } = get();
+      if (!accessToken) return;
+
+      set({ isSyncing: true, apiError: undefined });
+      try {
+        const response = await apiClient.updateProfile(accessToken, { displayName });
+        set({ player: response.player, selectedAvatarRace: response.player.selectedAvatarRace, apiError: undefined });
+      } catch (error) {
+        set({ apiError: error instanceof Error ? error.message : 'Profile update failed.' });
+      } finally {
+        set({ isSyncing: false });
+      }
+    },
     setLanguage: (language) => set({ language }),
     setLanguageFromSystem: (languageCode) => {
       const normalizedLanguage = languageCode?.toLowerCase().startsWith('ru') ? 'ru' : 'en';

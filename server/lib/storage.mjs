@@ -40,6 +40,11 @@ export class JsonFileStorage {
     return Object.values(this.data.players).find((player) => player.referralCode === referralCode) ?? null;
   }
 
+  async listDirectReferrals(referralCode) {
+    await this.ready;
+    return Object.values(this.data.players).filter((player) => player.referredBy === referralCode);
+  }
+
   async savePlayer(player) {
     await this.ready;
     this.data.players[player.id] = { ...player, updatedAt: new Date().toISOString() };
@@ -101,6 +106,18 @@ export class JsonFileStorage {
         byType24h: eventsByType,
       },
       serverTime: new Date().toISOString(),
+    };
+  }
+
+  async getReferralXpSummary(playerId) {
+    await this.ready;
+    const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const events = this.data.analyticsEvents.filter((event) => event.playerId === playerId && event.eventType === 'referral_xp');
+    const amountOf = (event) => Number(event.payload?.amount ?? 0) || 0;
+
+    return {
+      xpToday: events.filter((event) => Date.parse(event.createdAt) >= dayAgo).reduce((sum, event) => sum + amountOf(event), 0),
+      totalReferralXp: events.reduce((sum, event) => sum + amountOf(event), 0),
     };
   }
 }

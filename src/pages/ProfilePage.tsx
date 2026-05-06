@@ -1,4 +1,6 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { apiClient } from '../api/client';
+import type { ReferralStatsResponse } from '../api/contracts';
 import { raceConfig, raceOrder } from '../config/gameConfig';
 import { Header } from '../shared/Header';
 import { useT } from '../shared/i18n';
@@ -9,15 +11,21 @@ type ProfilePanel = 'partners' | 'settings' | 'help' | 'legal';
 
 export function ProfilePage() {
   const player = useGameStore((state) => state.player);
-  const energy = useGameStore((state) => state.energy);
   const trophies = useGameStore((state) => state.trophies);
+  const accessToken = useGameStore((state) => state.accessToken);
+  const isSyncing = useGameStore((state) => state.isSyncing);
   const selectedAvatarRace = useGameStore((state) => state.selectedAvatarRace);
   const setSelectedAvatarRace = useGameStore((state) => state.setSelectedAvatarRace);
+  const updateDisplayName = useGameStore((state) => state.updateDisplayName);
   const language = useGameStore((state) => state.language);
   const setLanguage = useGameStore((state) => state.setLanguage);
   const avatarRace = raceConfig[selectedAvatarRace];
   const [openPanel, setOpenPanel] = useState<ProfilePanel | null>('settings');
-  const referralProgress = Math.min(100, (player.activeInvitedCount / 10) * 100);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [displayName, setDisplayName] = useState(player.username);
+  const [referralStats, setReferralStats] = useState<ReferralStatsResponse | null>(null);
+  const activeReferralCount = referralStats?.activeInvitedCount ?? player.activeInvitedCount;
+  const referralProgress = Math.min(100, (activeReferralCount / 10) * 100);
   const referralLink = `https://t.me/DotaGiftBot?startapp=${encodeURIComponent(player.referralCode)}`;
   const t = useT();
   const languageOptions: Array<{ id: AppLanguage; label: string }> = [
@@ -25,12 +33,28 @@ export function ProfilePage() {
     { id: 'ru', label: t('russian') },
   ];
   const togglePanel = (panel: ProfilePanel) => setOpenPanel((current) => (current === panel ? null : panel));
-  const directReferrals = [
-    { name: 'Alex', status: 'Active', xpToday: 320, totalXp: 3800 },
-    { name: 'Dima', status: 'Pending', xpToday: 0, totalXp: 0 },
-    { name: 'Sam', status: 'Active', xpToday: 120, totalXp: 1420 },
-    { name: 'Mira', status: 'Active', xpToday: 300, totalXp: 7260 },
-  ];
+
+  useEffect(() => {
+    setDisplayName(player.username);
+  }, [player.username]);
+
+  useEffect(() => {
+    if (!accessToken || openPanel !== 'partners') return;
+    let isCancelled = false;
+
+    apiClient
+      .getReferralStats(accessToken)
+      .then((stats) => {
+        if (!isCancelled) setReferralStats(stats);
+      })
+      .catch(() => {
+        if (!isCancelled) setReferralStats(null);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [accessToken, openPanel]);
 
   return (
     <>
@@ -48,7 +72,33 @@ export function ProfilePage() {
                 {avatarRace.imageUrl}
               </div>
               <div className="min-w-0">
-                <h2 className="profile-player-name text-zinc-50">{player.username}</h2>
+                {isEditingName ? (
+                  <div className="flex min-w-0 items-center gap-2">
+                    <input
+                      value={displayName}
+                      onChange={(event) => setDisplayName(event.target.value)}
+                      maxLength={32}
+                      className="game-label min-w-0 rounded-md border border-cyan-200/20 bg-black/25 px-2 py-1 text-sm text-zinc-50 outline-none focus:border-cyan-200/50"
+                    />
+                    <button
+                      type="button"
+                      disabled={isSyncing}
+                      onClick={() => {
+                        void updateDisplayName(displayName).then(() => setIsEditingName(false));
+                      }}
+                      className="game-label rounded-md bg-amber-300 px-2 py-1 text-xs text-zinc-950 disabled:bg-zinc-700 disabled:text-zinc-400"
+                    >
+                      Save
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex min-w-0 items-center gap-2">
+                    <h2 className="profile-player-name truncate text-zinc-50">{player.username}</h2>
+                    <button type="button" onClick={() => setIsEditingName(true)} className="game-caption shrink-0 rounded-md border border-white/10 px-2 py-1 text-[11px] text-zinc-300">
+                      Edit
+                    </button>
+                  </div>
+                )}
                 <p className="game-caption text-sm text-zinc-400">
                   {t('avatar')}: {avatarRace.label}
                 </p>
@@ -96,7 +146,7 @@ export function ProfilePage() {
         </div>
 
         <div className="grid gap-2">
-          <AccordionRow title={t('partners')} hint={t('activeReferrals', { count: player.activeInvitedCount })} tone="green" isOpen={openPanel === 'partners'} onToggle={() => togglePanel('partners')}>
+          <AccordionRow title={t('partners')} hint={t('activeReferrals', { count: activeReferralCount })} tone="green" isOpen={openPanel === 'partners'} onToggle={() => togglePanel('partners')}>
             <div className="grid gap-3">
               <div className="rounded-md border border-white/10 bg-black/20 p-3">
                 <p className="game-caption text-xs text-zinc-400">{t('referralLink')}</p>
@@ -110,8 +160,8 @@ export function ProfilePage() {
 
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  [t('xpToday'), '+740'],
-                  [t('totalRefXp'), '12 480'],
+                  [t('xpToday'), referralStats?.xpToday ?? 0],
+                  [t('totalRefXp'), referralStats?.totalReferralXp ?? 0],
                   [t('dailyCap'), '1 500'],
                 ].map(([label, value]) => (
                   <div key={label} className="rounded-md border border-white/10 bg-white/[0.045] p-2">
@@ -133,7 +183,7 @@ export function ProfilePage() {
               <div>
                 <div className="game-caption mb-2 flex justify-between text-xs text-zinc-400">
                   <span>{t('nextBonus')}</span>
-                  <span>{player.activeInvitedCount}/10</span>
+                  <span>{activeReferralCount}/10</span>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-white/10">
                   <div className="h-full rounded-full bg-emerald-300" style={{ width: `${referralProgress}%` }} />
@@ -151,9 +201,12 @@ export function ProfilePage() {
                     <span className="game-caption text-right text-[11px] text-zinc-500">{t('today')}</span>
                     <span className="game-caption text-right text-[11px] text-zinc-500">{t('total')}</span>
                   </div>
-                  {directReferrals.map((referral) => (
+                  {(referralStats?.directReferrals ?? []).map((referral) => (
                     <ReferralRow key={referral.name} referral={referral} />
                   ))}
+                  {referralStats && referralStats.directReferrals.length === 0 ? (
+                    <p className="game-caption border-t border-white/8 px-2 py-3 text-center text-xs text-zinc-500">No direct referrals yet</p>
+                  ) : null}
                 </div>
               </div>
 
@@ -208,14 +261,14 @@ function PartnerRateCard({ title, value, caption }: { title: string; value: stri
   );
 }
 
-function ReferralRow({ referral }: { referral: { name: string; status: string; xpToday: number; totalXp: number } }) {
-  const isActive = referral.status === 'Active';
+function ReferralRow({ referral }: { referral: { name: string; status: 'active' | 'pending'; xpToday: number; totalXp: number } }) {
+  const isActive = referral.status === 'active';
 
   return (
     <div className="grid grid-cols-[1fr_72px_72px] gap-2 border-t border-white/8 px-2 py-2">
       <div className="min-w-0">
         <p className="game-label truncate text-sm">{referral.name}</p>
-        <p className={`game-caption text-xs ${isActive ? 'text-emerald-200' : 'text-zinc-500'}`}>{referral.status}</p>
+        <p className={`game-caption text-xs ${isActive ? 'text-emerald-200' : 'text-zinc-500'}`}>{isActive ? 'Active' : 'Pending'}</p>
       </div>
       <span className="game-number self-center text-right text-xs text-cyan-100">+{referral.xpToday}</span>
       <span className="game-number self-center text-right text-xs text-zinc-300">{referral.totalXp}</span>
@@ -254,8 +307,6 @@ function LegalSection() {
         <p>{t('ip1')}</p>
         <p>{t('ip2')}</p>
       </LegalBlock>
-
-      <p className="game-caption text-xs leading-5 text-zinc-500">{t('legalDraft')}</p>
     </div>
   );
 }

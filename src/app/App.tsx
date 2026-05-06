@@ -70,8 +70,8 @@ export default function App() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col overflow-hidden bg-[#10141c]/95 text-white">
-      <div className="flex-1 overflow-y-auto px-4 pb-28 pt-3">
+    <main className="mx-auto flex min-h-screen w-full max-w-[560px] flex-col overflow-hidden bg-[#10141c]/95 text-white">
+      <div className="flex-1 overflow-y-auto px-3 pb-24 pt-2 sm:px-4">
         {apiError ? (
           <button
             type="button"

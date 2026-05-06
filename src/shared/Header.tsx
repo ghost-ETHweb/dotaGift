@@ -16,7 +16,7 @@ export function Header() {
   const t = useT();
 
   return (
-    <header className="mb-4">
+    <header className="mb-3">
       <div className="flex items-center justify-between gap-3">
         <button type="button" onClick={() => setActiveTab('profile')} className="flex min-w-0 items-center gap-3">
           {player.avatarUrl ? (
@@ -32,7 +32,7 @@ export function Header() {
             </div>
           )}
           <div className="min-w-0 text-left">
-            <h1 className="game-title truncate text-xl text-zinc-50">Dota Gift</h1>
+            <h1 className="game-title truncate text-lg text-zinc-50">Dota Gift</h1>
             <p className="game-caption truncate text-xs text-zinc-400">
               {t('levelShort')} {player.level}
             </p>
@@ -41,7 +41,7 @@ export function Header() {
         <button
           type="button"
           onClick={openEnergyModal}
-          className="rounded-md border border-white/10 bg-white/[0.06] px-3 py-2 text-right transition active:scale-[0.98]"
+          className="rounded-md border border-white/10 bg-white/[0.06] px-3 py-1.5 text-right transition active:scale-[0.98]"
           aria-label="Open energy info"
         >
           <p className="game-caption text-[11px] uppercase text-zinc-400">{t('energy')}</p>
@@ -50,11 +50,11 @@ export function Header() {
           </p>
         </button>
       </div>
-      <div className="mt-3">
+      <div className="mt-2">
         <button
           type="button"
           onClick={openXpModal}
-          className="mb-2 flex w-full items-center justify-between rounded-md border border-sky-200/20 bg-sky-300/[0.07] px-3 py-2 text-left shadow-[0_0_22px_rgba(56,189,248,0.12)] transition active:scale-[0.99]"
+          className="mb-1.5 flex w-full items-center justify-between rounded-md border border-sky-200/20 bg-sky-300/[0.07] px-3 py-1.5 text-left shadow-[0_0_22px_rgba(56,189,248,0.12)] transition active:scale-[0.99]"
           aria-label="Open XP info"
         >
           <span className="game-caption text-xs uppercase text-sky-100">{t('xpProgress')}</span>

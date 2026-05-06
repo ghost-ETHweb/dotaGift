@@ -63,8 +63,7 @@ function createInitialBoard() {
 }
 
 function normalizeUsername(telegramUser) {
-  if (telegramUser.username) return telegramUser.username;
-  return [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(' ') || 'Telegram Player';
+  return [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(' ') || telegramUser.username || 'Telegram Player';
 }
 
 export function createNewPlayer(telegramUser, referralCode) {
@@ -75,6 +74,7 @@ export function createNewPlayer(telegramUser, referralCode) {
     id: `tg_${telegramUser.id}`,
     telegramId: String(telegramUser.id),
     username: normalizeUsername(telegramUser),
+    displayNameCustom: false,
     avatarUrl: telegramUser.photo_url,
     languageCode: telegramUser.language_code,
     referralCode: `ref_${telegramUser.id}`,
@@ -110,6 +110,7 @@ export function toPlayerProfile(player) {
     username: player.username,
     avatarUrl: player.avatarUrl,
     referralCode: player.referralCode,
+    selectedAvatarRace: player.selectedAvatarRace ?? 'orcs',
     level: player.level,
     xp: player.xp,
     xpToNextLevel: xpToNextLevel(player.level),
@@ -121,6 +122,18 @@ export function toPlayerProfile(player) {
     activeInvitedCount: player.activeInvitedCount,
     stats: player.stats,
   };
+}
+
+export function totalXpForPlayer(player) {
+  let total = player.xp;
+  for (let level = 1; level < player.level; level += 1) {
+    total += xpToNextLevel(level);
+  }
+  return total;
+}
+
+export function isActiveReferral(player) {
+  return player.level >= 2 || player.stats.created >= 3 || player.stats.merged >= 1;
 }
 
 export function applyEnergyRegen(player, now = Date.now()) {
@@ -170,6 +183,11 @@ function addXp(player, xpDelta) {
   player.level = level;
 
   return levelUps;
+}
+
+export function grantBonusXp(player, xpDelta) {
+  if (!Number.isFinite(xpDelta) || xpDelta <= 0) return [];
+  return addXp(player, Math.floor(xpDelta));
 }
 
 function assertActionAllowed(player, clientActionId) {

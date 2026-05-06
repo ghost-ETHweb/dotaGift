@@ -12,10 +12,16 @@
   background: #0e1117;
 }
 
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  min-height: 100dvh;
   font-family: var(--font-ui);
   font-size: 15px;
   font-weight: 500;
@@ -94,6 +100,16 @@ strong,
 
 .safe-bottom {
   padding-bottom: max(env(safe-area-inset-bottom), 0.75rem);
+}
+
+@media (max-height: 720px) {
+  body {
+    font-size: 14px;
+  }
+
+  .safe-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom), 0.5rem);
+  }
 }
 
 .card-sheen::after {

@@ -14,6 +14,7 @@ import type {
   TelegramLoginRequest,
   TelegramLoginResponse,
   TrophiesResponse,
+  UpdateProfileRequest,
 } from './contracts';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? (import.meta.env.DEV ? 'http://localhost:8787' : '');
@@ -24,6 +25,9 @@ type RequestOptions = {
 };
 
 async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 12000);
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: options.body ? 'POST' : 'GET',
     headers: {
@@ -31,7 +35,8 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
       ...(options.accessToken ? { authorization: `Bearer ${options.accessToken}` } : {}),
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
-  });
+    signal: controller.signal,
+  }).finally(() => window.clearTimeout(timeoutId));
 
   const payload = await response.json();
   if (!response.ok) {
@@ -44,6 +49,7 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
 export const apiClient = {
   loginViaTelegram: (body: TelegramLoginRequest) => apiRequest<TelegramLoginResponse>('/api/auth/telegram', { body }),
   getProfile: (accessToken: string) => apiRequest<{ player: TelegramLoginResponse['player']; serverTime: string }>('/api/profile', { accessToken }),
+  updateProfile: (accessToken: string, body: UpdateProfileRequest) => apiRequest<{ player: TelegramLoginResponse['player']; serverTime: string }>('/api/profile/update', { accessToken, body }),
   getGameState: (accessToken: string) => apiRequest<GameStateResponse>('/api/game-state', { accessToken }),
   createCard: (accessToken: string, body: CreateCardRequest) => apiRequest<ActionResponse>('/api/cards/create', { accessToken, body }),
   moveCard: (accessToken: string, body: MoveCardRequest) => apiRequest<ActionResponse>('/api/cards/move', { accessToken, body }),

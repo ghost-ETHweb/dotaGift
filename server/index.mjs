@@ -13,9 +13,12 @@ import {
   createCardAction,
   createNewPlayer,
   deleteCardAction,
+  grantBonusXp,
   getPendingRewards,
+  isActiveReferral,
   mergeCardsAction,
   moveCardAction,
+  totalXpForPlayer,
   toPlayerProfile,
 } from './domain/game-service.mjs';
 
@@ -96,6 +99,18 @@ async function trackLevelUp(player, result) {
   });
 }
 
+function cleanDisplayName(value) {
+  if (typeof value !== 'string') return null;
+  const name = value.replace(/\s+/g, ' ').trim();
+  if (name.length < 2 || name.length > 32) throw new HttpError(400, 'INVALID_DISPLAY_NAME', 'Display name must be 2-32 characters.');
+  return name;
+}
+
+function cleanAvatarRace(value) {
+  if (typeof value !== 'string') return null;
+  return ['orcs', 'dwarves', 'assassins', 'demons', 'mages'].includes(value) ? value : null;
+}
+
 function assertAdminAccess(request) {
   if (!env.adminToken) throw new HttpError(503, 'ADMIN_NOT_CONFIGURED', 'Admin access is not configured.');
 
@@ -124,6 +139,46 @@ async function resolveReferralCode(rawReferralCode, telegramUser) {
   if (inviter.telegramId === String(telegramUser.id)) return null;
 
   return { referralCode, inviter };
+}
+
+async function syncReferralCounters(player) {
+  const directReferrals = await storage.listDirectReferrals(player.referralCode);
+  player.invitedCount = directReferrals.length;
+  player.activeInvitedCount = directReferrals.filter(isActiveReferral).length;
+  return directReferrals;
+}
+
+async function grantReferralBonuses(player, xpDelta) {
+  if (!player.referredBy || !Number.isFinite(xpDelta) || xpDelta <= 0) return;
+
+  try {
+    const inviter = await storage.getPlayerByReferralCode(player.referredBy);
+    if (!inviter || inviter.id === player.id) return;
+
+    const level1Amount = Math.max(1, Math.floor(xpDelta * 0.05));
+    grantBonusXp(inviter, level1Amount);
+    await storage.savePlayer(inviter);
+    await trackEvent('referral_xp', inviter, {
+      amount: level1Amount,
+      depth: 1,
+      sourcePlayerId: player.id,
+    });
+
+    if (!inviter.referredBy) return;
+    const parent = await storage.getPlayerByReferralCode(inviter.referredBy);
+    if (!parent || parent.id === inviter.id || parent.id === player.id) return;
+
+    const level2Amount = Math.max(1, Math.floor(xpDelta * 0.02));
+    grantBonusXp(parent, level2Amount);
+    await storage.savePlayer(parent);
+    await trackEvent('referral_xp', parent, {
+      amount: level2Amount,
+      depth: 2,
+      sourcePlayerId: player.id,
+    });
+  } catch (error) {
+    console.error('Referral bonus failed', error);
+  }
 }
 
 async function getAuthedPlayer(request) {
@@ -156,7 +211,7 @@ async function handleLogin(request, response) {
       telegramUser = createDevTelegramUser();
     } else {
       telegramUser = validation.user;
-      referralCode = referralCode || validation.startParam;
+      referralCode = validation.startParam || referralCode;
     }
   } else if (env.allowDevAuth) {
     telegramUser = createDevTelegramUser();
@@ -170,7 +225,7 @@ async function handleLogin(request, response) {
   if (!player) {
     player = createNewPlayer(telegramUser, referral?.referralCode);
   } else {
-    player.username = telegramUser.username || [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(' ') || player.username;
+    if (!player.displayNameCustom) player.username = [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(' ') || telegramUser.username || player.username;
     player.avatarUrl = telegramUser.photo_url ?? player.avatarUrl;
     player.languageCode = telegramUser.language_code ?? player.languageCode;
   }
@@ -203,6 +258,7 @@ async function handleLogin(request, response) {
 
 async function handleProfile(request, response) {
   const player = await getAuthedPlayer(request);
+  await syncReferralCounters(player);
   await saveAndSendPlayer(response, request, player, {
     player: toPlayerProfile(player),
     serverTime: new Date().toISOString(),
@@ -211,6 +267,7 @@ async function handleProfile(request, response) {
 
 async function handleGameState(request, response) {
   const player = await getAuthedPlayer(request);
+  await syncReferralCounters(player);
   await saveAndSendPlayer(response, request, player, {
     board: player.board,
     trophies: player.trophies,
@@ -228,6 +285,7 @@ async function handleCreateCard(request, response) {
   const previousCardIds = new Set(player.board.filter(Boolean).map((card) => card.id));
   const result = createCardAction(player, body.clientActionId);
   const createdCard = player.board.filter(Boolean).find((card) => !previousCardIds.has(card.id));
+  await grantReferralBonuses(player, result.xpDelta);
   await saveAndSendPlayer(response, request, player, result);
   await trackEvent('create_card', player, {
     xpDelta: result.xpDelta,
@@ -250,6 +308,7 @@ async function handleMergeCards(request, response) {
   const previousTrophyCount = player.trophies.length;
   const result = mergeCardsAction(player, body.clientActionId, body.firstCardId, body.secondCardId);
   const createdTrophy = player.trophies.length > previousTrophyCount ? player.trophies[0] : null;
+  await grantReferralBonuses(player, result.xpDelta);
   await saveAndSendPlayer(response, request, player, result);
   await trackEvent('merge_cards', player, {
     xpDelta: result.xpDelta,
@@ -279,6 +338,7 @@ async function handleDeleteCard(request, response) {
   const body = await readJsonBody(request);
   const player = await getAuthedPlayer(request);
   const result = deleteCardAction(player, body.clientActionId, body.cardId);
+  await grantReferralBonuses(player, result.xpDelta);
   await saveAndSendPlayer(response, request, player, result);
   await trackEvent('delete_card', player, {
     xpDelta: result.xpDelta,
@@ -305,13 +365,35 @@ async function handleAdminStats(request, response) {
   sendJson(response, 200, stats, corsHeaders(request));
 }
 
+async function handleUpdateProfile(request, response) {
+  const body = await readJsonBody(request);
+  const player = await getAuthedPlayer(request);
+  const displayName = cleanDisplayName(body.displayName);
+  const selectedAvatarRace = cleanAvatarRace(body.selectedAvatarRace);
+
+  if (displayName) {
+    player.username = displayName;
+    player.displayNameCustom = true;
+  }
+  if (selectedAvatarRace) player.selectedAvatarRace = selectedAvatarRace;
+
+  await saveAndSendPlayer(response, request, player, {
+    player: toPlayerProfile(player),
+    serverTime: new Date().toISOString(),
+  });
+  await trackEvent('profile_update', player, {
+    displayNameChanged: Boolean(displayName),
+    avatarRaceChanged: Boolean(selectedAvatarRace),
+  });
+}
+
 async function handleLeaderboard(request, response) {
   const player = await getAuthedPlayer(request);
   const url = getUrl(request);
   const period = ['today', 'week', 'season', 'allTime'].includes(url.searchParams.get('period')) ? url.searchParams.get('period') : 'season';
   const scope = url.searchParams.get('scope') === 'friends' ? 'friends' : 'all';
-  const players = await storage.listPlayers();
-  const fullRows = [...players, ...(env.allowDevAuth ? demoLeaderboardRows : [])]
+  const players = scope === 'friends' ? [player, ...(await storage.listDirectReferrals(player.referralCode))] : await storage.listPlayers();
+  const fullRows = [...players, ...(scope === 'all' && env.allowDevAuth ? demoLeaderboardRows : [])]
     .map((item) => ({
       id: item.id,
       rank: 0,
@@ -319,7 +401,7 @@ async function handleLeaderboard(request, response) {
       avatarUrl: item.avatarUrl,
       preferredRace: item.selectedAvatarRace ?? 'orcs',
       level: item.level,
-      xp: item.xp,
+      xp: totalXpForPlayer(item),
       immortalTrophies: item.trophies.filter((card) => card.rarity === 'immortal').length,
       isCurrentUser: item.id === player.id,
       referredBy: item.referredBy,
@@ -327,10 +409,7 @@ async function handleLeaderboard(request, response) {
     .sort((a, b) => b.level - a.level || b.xp - a.xp || b.immortalTrophies - a.immortalTrophies)
     .map((row, index) => ({ ...row, rank: index + 1 }));
   const currentUser = fullRows.find((row) => row.isCurrentUser);
-  const rows =
-    scope === 'friends'
-      ? fullRows.filter((row) => !row.isCurrentUser && (row.referredBy === player.referralCode || row.referredBy === player.referredBy))
-      : fullRows;
+  const rows = scope === 'friends' ? fullRows.filter((row) => !row.isCurrentUser) : fullRows;
 
   sendJson(
     response,
@@ -353,6 +432,15 @@ async function handleTrophies(request, response) {
 
 async function handleReferralStats(request, response) {
   const player = await getAuthedPlayer(request);
+  const directReferrals = await syncReferralCounters(player);
+  await storage.savePlayer(player);
+  const referralXp = await storage.getReferralXpSummary(player.id);
+  const directRows = directReferrals.map((referral) => ({
+    name: referral.username,
+    status: isActiveReferral(referral) ? 'active' : 'pending',
+    xpToday: 0,
+    totalXp: totalXpForPlayer(referral),
+  }));
 
   sendJson(
     response,
@@ -362,11 +450,11 @@ async function handleReferralStats(request, response) {
       referralLink: `https://t.me/DotaGiftBot?startapp=${encodeURIComponent(player.referralCode)}`,
       level1SharePercent: 5,
       level2SharePercent: 2,
-      invitedCount: player.invitedCount,
-      activeInvitedCount: player.activeInvitedCount,
-      xpToday: 0,
-      totalReferralXp: 0,
-      directReferrals: [],
+      invitedCount: directReferrals.length,
+      activeInvitedCount: directRows.filter((referral) => referral.status === 'active').length,
+      xpToday: referralXp.xpToday,
+      totalReferralXp: referralXp.totalReferralXp,
+      directReferrals: directRows,
       serverTime: new Date().toISOString(),
     },
     corsHeaders(request),
@@ -400,6 +488,7 @@ export async function route(request, response) {
   if (method === 'GET' && path === '/api/health') return sendJson(response, 200, { ok: true, serverTime: new Date().toISOString() }, corsHeaders(request));
   if (method === 'POST' && path === '/api/auth/telegram') return handleLogin(request, response);
   if (method === 'GET' && path === '/api/profile') return handleProfile(request, response);
+  if (method === 'POST' && path === '/api/profile/update') return handleUpdateProfile(request, response);
   if (method === 'GET' && path === '/api/game-state') return handleGameState(request, response);
   if (method === 'POST' && path === '/api/cards/create') return handleCreateCard(request, response);
   if (method === 'POST' && path === '/api/cards/move') return handleMoveCard(request, response);

@@ -46,6 +46,11 @@ export interface DeleteCardRequest {
   cardId: string;
 }
 
+export interface UpdateProfileRequest {
+  displayName?: string;
+  selectedAvatarRace?: string;
+}
+
 export interface ActionResponse {
   board: Array<GameCard | null>;
   trophies: GameCard[];

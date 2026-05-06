@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Header } from '../shared/Header';
 import { useT } from '../shared/i18n';
@@ -30,7 +30,7 @@ function getSlotIndexAtPoint(x: number, y: number) {
   return target ? Number(target.dataset.slotIndex) : null;
 }
 
-function CardFace({ card, muted = false }: { card: GameCard; muted?: boolean }) {
+const CardFace = memo(function CardFace({ card, muted = false }: { card: GameCard; muted?: boolean }) {
   const race = raceConfig[card.race];
 
   return (
@@ -42,7 +42,7 @@ function CardFace({ card, muted = false }: { card: GameCard; muted?: boolean }) 
     >
       <div className="absolute inset-x-0 top-0 h-1.5" style={{ backgroundColor: race.accent }} />
       <div className="grid min-h-0 flex-1 place-items-center pt-1">
-        <span className="game-title text-3xl text-white">{card.imageUrl}</span>
+        <span className="game-title text-[clamp(1.45rem,7vw,2rem)] leading-none text-white">{card.imageUrl}</span>
       </div>
       <div className="grid place-items-center">
         <span className="game-number rounded-full bg-amber-200 px-2 py-0.5 text-xs leading-none text-zinc-950">
@@ -52,7 +52,7 @@ function CardFace({ card, muted = false }: { card: GameCard; muted?: boolean }) 
       </div>
     </div>
   );
-}
+});
 
 function DragPreview({ dragState }: { dragState: DragState | null }) {
   if (!dragState) return null;
@@ -144,7 +144,7 @@ export function GamePage() {
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [actionCard, setActionCard] = useState<GameCard | null>(null);
   const pendingDrag = useRef<PendingDrag | null>(null);
-  const isCreateDisabled = isSyncing || energy.current < energy.createCost || board.every(Boolean);
+  const isCreateDisabled = energy.current < energy.createCost || board.every(Boolean);
   const matchSource = dragState?.card ?? actionCard;
   const t = useT();
 
@@ -171,12 +171,15 @@ export function GamePage() {
   return (
     <>
       <Header />
-      <section className="rounded-lg border border-white/10 bg-white/[0.045] p-3 shadow-2xl">
-        <div className="mb-3 rounded-md border border-cyan-200/18 bg-cyan-300/[0.055] p-3 shadow-[0_0_22px_rgba(34,211,238,0.1)]">
-          <h2 className="game-title text-base text-cyan-50 drop-shadow-[0_0_8px_rgba(34,211,238,0.28)]">{t('battleBoard')}</h2>
-          <p className="game-caption mt-1 text-xs leading-5 text-cyan-100/78">{t('boardHint')}</p>
+      <section className="rounded-lg border border-white/10 bg-white/[0.045] p-2 shadow-2xl">
+        <div className="mb-2 rounded-md border border-cyan-200/18 bg-cyan-300/[0.055] px-3 py-2 shadow-[0_0_22px_rgba(34,211,238,0.1)]">
+          <h2 className="game-title text-sm text-cyan-50 drop-shadow-[0_0_8px_rgba(34,211,238,0.28)]">{t('battleBoard')}</h2>
+          <p className="game-caption mt-0.5 text-[11px] leading-4 text-cyan-100/78">{t('boardHint')}</p>
         </div>
-        <div className="grid aspect-square grid-cols-4 gap-2">
+        <div
+          className="mx-auto grid aspect-square touch-none grid-cols-4 gap-1.5"
+          style={{ width: 'min(100%, calc(100dvh - 292px))', maxWidth: '440px' }}
+        >
           {board.map((card, index) => {
             const isSource = Boolean(matchSource && card?.id === matchSource.id);
             const isCompatible = Boolean(matchSource && card && !isSource && card.race === matchSource.race && card.stars === matchSource.stars);
@@ -185,18 +188,16 @@ export function GamePage() {
               ? 'border-emerald-300/75 bg-emerald-300/12 shadow-[0_0_0_2px_rgba(110,231,183,0.18)]'
               : dropIndex === index
                 ? 'border-cyan-200 bg-cyan-300/10 shadow-[0_0_18px_rgba(34,211,238,0.18)]'
-                : 'border-white/10 bg-black/22';
+              : 'border-white/10 bg-black/22';
 
             return (
-              <div key={card?.id ?? index} data-slot-index={index} className={`relative aspect-square rounded-md border p-1 transition ${slotClass} ${isDimmed ? 'opacity-40' : ''}`}>
+              <div key={index} data-slot-index={index} className={`relative aspect-square rounded-md border p-1 transition ${slotClass} ${isDimmed ? 'opacity-40' : ''}`}>
                 <div className="absolute inset-1 rounded bg-white/[0.035]" />
                 {card ? (
-                  <motion.div
-                    layout
-                    initial={{ scale: 0.84, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
+                  <div
                     className="relative z-10 h-full touch-none"
                     onPointerDown={(event) => {
+                      event.preventDefault();
                       event.stopPropagation();
                       const rect = event.currentTarget.getBoundingClientRect();
                       event.currentTarget.setPointerCapture(event.pointerId);
@@ -212,6 +213,7 @@ export function GamePage() {
                       };
                     }}
                     onPointerMove={(event) => {
+                      event.preventDefault();
                       const pending = pendingDrag.current;
                       if (!pending || pending.pointerId !== event.pointerId) return;
 
@@ -226,6 +228,7 @@ export function GamePage() {
                       });
                     }}
                     onPointerUp={(event) => {
+                      event.preventDefault();
                       const pending = pendingDrag.current;
                       const targetIndex = getSlotIndexAtPoint(event.clientX, event.clientY);
 
@@ -246,7 +249,7 @@ export function GamePage() {
                     }}
                   >
                     <CardFace card={card} muted={dragState?.card.id === card.id} />
-                  </motion.div>
+                  </div>
                 ) : (
                   <div className="relative z-10 h-full" />
                 )}
@@ -255,16 +258,16 @@ export function GamePage() {
           })}
         </div>
       </section>
-      <section className="mt-4 grid gap-3">
+      <section className="mt-3 grid gap-2">
         <button
           type="button"
           disabled={isCreateDisabled}
           onClick={() => void createCard()}
-          className="game-label min-h-14 rounded-md bg-amber-300 px-5 text-base text-zinc-950 shadow-glow transition active:scale-[0.99] disabled:bg-zinc-700 disabled:text-zinc-400"
+          className="game-label min-h-12 rounded-md bg-amber-300 px-5 text-sm text-zinc-950 shadow-glow transition active:scale-[0.99] disabled:bg-zinc-700 disabled:text-zinc-400"
         >
           {t('createCard')} / {energy.createCost} {t('energyUnit')}
         </button>
-        <div className="game-caption rounded-md border border-white/10 bg-white/[0.045] p-3 text-sm text-zinc-300">
+        <div className="game-caption rounded-md border border-white/10 bg-white/[0.045] px-3 py-2 text-xs leading-4 text-zinc-300">
           {energy.current < energy.createCost
             ? t('energyEmpty', { minutes: energy.regenIntervalMinutes })
             : board.every(Boolean)
