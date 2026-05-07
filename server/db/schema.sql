@@ -4,6 +4,7 @@ CREATE TABLE players (
   username TEXT NOT NULL,
   display_name_custom BOOLEAN NOT NULL DEFAULT false,
   avatar_url TEXT,
+  avatar_mode TEXT NOT NULL DEFAULT 'caste',
   language_code TEXT,
   referral_code TEXT NOT NULL UNIQUE,
   referred_by TEXT,

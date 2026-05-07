@@ -120,4 +120,21 @@ export class JsonFileStorage {
       totalReferralXp: events.reduce((sum, event) => sum + amountOf(event), 0),
     };
   }
+
+  async getXpByPlayerSince(playerIds, sinceIso) {
+    await this.ready;
+    const wanted = new Set(playerIds);
+    const since = Date.parse(sinceIso);
+    const xpByPlayer = new Map();
+
+    for (const event of this.data.analyticsEvents) {
+      if (!wanted.has(event.playerId) || Date.parse(event.createdAt) < since) continue;
+      if (!['create_card', 'merge_cards', 'delete_card', 'referral_xp'].includes(event.eventType)) continue;
+
+      const amount = Number(event.payload?.xpDelta ?? event.payload?.amount ?? 0) || 0;
+      xpByPlayer.set(event.playerId, (xpByPlayer.get(event.playerId) ?? 0) + amount);
+    }
+
+    return xpByPlayer;
+  }
 }

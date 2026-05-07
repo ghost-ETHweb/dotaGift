@@ -8,7 +8,11 @@ type TelegramWebApp = {
   initData?: string;
   initDataUnsafe?: {
     user?: {
+      first_name?: string;
+      last_name?: string;
+      username?: string;
       language_code?: string;
+      photo_url?: string;
     };
   };
   HapticFeedback?: {
@@ -47,6 +51,10 @@ export const telegram = {
   },
   getUserLanguageCode() {
     return this.app?.initDataUnsafe?.user?.language_code;
+  },
+  getUserDisplayName() {
+    const user = this.app?.initDataUnsafe?.user;
+    return [user?.first_name, user?.last_name].filter(Boolean).join(' ') || user?.username || undefined;
   },
   getInitData() {
     return this.app?.initData ?? '';

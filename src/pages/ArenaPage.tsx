@@ -12,13 +12,12 @@ type ArenaTab = 'leaderboard' | 'tournaments';
 const periods: Array<{ id: LeaderboardPeriod; labelKey: TranslationKey }> = [
   { id: 'today', labelKey: 'today' },
   { id: 'week', labelKey: 'week' },
-  { id: 'season', labelKey: 'season' },
   { id: 'allTime', labelKey: 'allTime' },
 ];
 
 export function ArenaPage() {
   const [activeTab, setActiveTab] = useState<ArenaTab>('leaderboard');
-  const [period, setPeriod] = useState<LeaderboardPeriod>('season');
+  const [period, setPeriod] = useState<LeaderboardPeriod>('today');
   const [scope, setScope] = useState<LeaderboardScope>('all');
   const t = useT();
 

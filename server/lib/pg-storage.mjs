@@ -34,6 +34,7 @@ function playerRowToBase(row) {
     username: row.username,
     displayNameCustom: row.display_name_custom ?? false,
     avatarUrl: row.avatar_url ?? undefined,
+    avatarMode: row.avatar_mode ?? 'caste',
     languageCode: row.language_code ?? undefined,
     referralCode: row.referral_code,
     referredBy: row.referred_by ?? null,
@@ -78,7 +79,8 @@ export class PgStorage {
   async ensureSchema() {
     await this.pool.query(`
       ALTER TABLE players
-        ADD COLUMN IF NOT EXISTS display_name_custom BOOLEAN NOT NULL DEFAULT false
+        ADD COLUMN IF NOT EXISTS display_name_custom BOOLEAN NOT NULL DEFAULT false,
+        ADD COLUMN IF NOT EXISTS avatar_mode TEXT NOT NULL DEFAULT 'caste'
     `);
     await this.pool.query('CREATE INDEX IF NOT EXISTS players_referred_by_idx ON players (referred_by)');
     await this.pool.query(`
@@ -149,22 +151,23 @@ export class PgStorage {
       await client.query(
         `
           INSERT INTO players (
-            id, telegram_id, username, display_name_custom, avatar_url, language_code, referral_code, referred_by, selected_avatar_race,
+            id, telegram_id, username, display_name_custom, avatar_url, avatar_mode, language_code, referral_code, referred_by, selected_avatar_race,
             level, xp, energy_current, energy_max, energy_next_regen_at,
             invited_count, active_invited_count, referral_level,
             stats_created, stats_merged, stats_deleted, stats_trophies, created_at, updated_at
           )
           VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9,
-            $10, $11, $12, $13, $14,
-            $15, $16, $17,
-            $18, $19, $20, $21, COALESCE($22, now()), now()
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+            $11, $12, $13, $14, $15,
+            $16, $17, $18,
+            $19, $20, $21, $22, COALESCE($23, now()), now()
           )
           ON CONFLICT (id) DO UPDATE SET
             telegram_id = EXCLUDED.telegram_id,
             username = EXCLUDED.username,
             display_name_custom = EXCLUDED.display_name_custom,
             avatar_url = EXCLUDED.avatar_url,
+            avatar_mode = EXCLUDED.avatar_mode,
             language_code = EXCLUDED.language_code,
             referral_code = EXCLUDED.referral_code,
             referred_by = EXCLUDED.referred_by,
@@ -189,6 +192,7 @@ export class PgStorage {
           player.username,
           player.displayNameCustom ?? false,
           player.avatarUrl ?? null,
+          player.avatarMode ?? 'caste',
           player.languageCode ?? null,
           player.referralCode,
           player.referredBy ?? null,
@@ -380,5 +384,35 @@ export class PgStorage {
       xpToday: result.rows[0].xp_today,
       totalReferralXp: result.rows[0].total_referral_xp,
     };
+  }
+
+  async getXpByPlayerSince(playerIds, sinceIso) {
+    await this.ready;
+    if (!Array.isArray(playerIds) || playerIds.length === 0) return new Map();
+
+    const result = await this.pool.query(
+      `
+        SELECT
+          player_id,
+          COALESCE(
+            SUM(
+              COALESCE(
+                NULLIF(payload->>'xpDelta', '')::int,
+                NULLIF(payload->>'amount', '')::int,
+                0
+              )
+            ),
+            0
+          )::int AS xp
+        FROM analytics_events
+        WHERE player_id = ANY($1)
+          AND created_at >= $2
+          AND event_type IN ('create_card', 'merge_cards', 'delete_card', 'referral_xp')
+        GROUP BY player_id
+      `,
+      [playerIds, sinceIso],
+    );
+
+    return new Map(result.rows.map((row) => [row.player_id, row.xp]));
   }
 }

@@ -2,6 +2,8 @@ export type TabId = 'game' | 'progress' | 'arena' | 'collection' | 'profile';
 
 export type AppLanguage = 'en' | 'ru';
 
+export type AvatarMode = 'telegram' | 'caste';
+
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'mythic' | 'legendary' | 'immortal';
 
 export type CardRace = 'orcs' | 'dwarves' | 'assassins' | 'demons' | 'mages';
@@ -47,6 +49,7 @@ export interface PlayerProfile {
   telegramId: string;
   username: string;
   avatarUrl?: string;
+  avatarMode: AvatarMode;
   referralCode: string;
   selectedAvatarRace: CardRace;
   level: number;

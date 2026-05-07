@@ -270,10 +270,11 @@ export function GamePage() {
   return (
     <>
       <Header />
-      <section className="rounded-lg border border-white/10 bg-white/[0.045] p-1.5 shadow-2xl">
-        <div className="mb-1.5 flex items-center justify-between gap-2 rounded-md border border-cyan-200/18 bg-cyan-300/[0.055] px-2 py-1.5 shadow-[0_0_22px_rgba(34,211,238,0.1)]">
-          <h2 className="game-title shrink-0 text-sm text-cyan-50 drop-shadow-[0_0_8px_rgba(34,211,238,0.28)]">{t('battleBoard')}</h2>
-          <p className="game-caption text-right text-[10px] leading-3 text-cyan-100/78">{t('boardHint')}</p>
+      <section className="rounded-lg border border-white/10 bg-white/[0.035] p-1.5 shadow-2xl">
+        <div className="mb-1.5 px-1 py-1">
+          <h2 className="game-title inline-flex rounded-md bg-cyan-300/[0.08] px-2 py-1 text-sm text-cyan-50 drop-shadow-[0_0_10px_rgba(34,211,238,0.38)]">
+            {t('battleBoard')}
+          </h2>
         </div>
         <div
           className="mx-auto grid aspect-square touch-none grid-cols-4 gap-1"
@@ -390,11 +391,6 @@ export function GamePage() {
         >
           {t('createCard')} / {energy.createCost} {t('energyUnit')}
         </button>
-        {energy.current < energy.createCost || board.every(Boolean) ? (
-          <div className="game-caption rounded-md border border-white/10 bg-white/[0.045] px-3 py-2 text-xs leading-4 text-zinc-300">
-            {energy.current < energy.createCost ? t('energyEmpty', { minutes: energy.regenIntervalMinutes }) : t('boardFull')}
-          </div>
-        ) : null}
       </section>
       <DragPreview dragState={dragState} previewRef={dragPreviewRef} />
       <AnimatePresence>

@@ -1,6 +1,6 @@
 import type { EnergyState, GameCard, LeaderboardRow, PlayerProfile, Reward } from '../types';
 
-export type LeaderboardPeriod = 'today' | 'week' | 'season' | 'allTime';
+export type LeaderboardPeriod = 'today' | 'week' | 'allTime';
 
 export type LeaderboardScope = 'all' | 'friends';
 
@@ -48,7 +48,9 @@ export interface DeleteCardRequest {
 
 export interface UpdateProfileRequest {
   displayName?: string;
+  displayNameCustom?: boolean;
   selectedAvatarRace?: string;
+  avatarMode?: string;
 }
 
 export interface ActionResponse {

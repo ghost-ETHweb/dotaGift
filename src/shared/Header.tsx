@@ -1,6 +1,14 @@
+import { useEffect, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { raceConfig, rarityConfig, xpToNextLevel } from '../config/gameConfig';
 import { useT } from './i18n';
+
+function formatTimer(ms: number) {
+  const totalSeconds = Number.isFinite(ms) ? Math.max(0, Math.ceil(ms / 1000)) : 0;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
 
 export function Header() {
   const player = useGameStore((state) => state.player);
@@ -9,17 +17,31 @@ export function Header() {
   const setActiveTab = useGameStore((state) => state.setActiveTab);
   const openEnergyModal = useGameStore((state) => state.openEnergyModal);
   const openXpModal = useGameStore((state) => state.openXpModal);
+  const [now, setNow] = useState(Date.now());
   const xpGoal = xpToNextLevel(player.level);
   const progress = Math.min(100, (player.xp / xpGoal) * 100);
   const avatarRace = raceConfig[selectedAvatarRace] ?? raceConfig.orcs;
   const avatarRarity = rarityConfig.common;
   const t = useT();
+  const useTelegramAvatar = player.avatarMode === 'telegram' && player.avatarUrl;
+  const isEnergyPaused = energy.current >= energy.max;
+  const nextRegenMs = Date.parse(energy.nextRegenAt ?? '') - now;
+  const energyTimerText = isEnergyPaused
+    ? energy.current > energy.max
+      ? t('bonusEnergyShort', { amount: energy.current - energy.max })
+      : t('energyFull')
+    : formatTimer(nextRegenMs);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
   return (
     <header className="mb-2">
       <div className="flex items-center justify-between gap-2">
         <button type="button" onClick={() => setActiveTab('profile')} className="flex min-w-0 items-center gap-2.5">
-          {player.avatarUrl ? (
+          {useTelegramAvatar ? (
             <img src={player.avatarUrl} alt="" className="size-9 rounded-full border border-white/20 object-cover shadow-glow" />
           ) : (
             <div
@@ -48,6 +70,7 @@ export function Header() {
           <p className="game-number text-sm text-amber-200">
             {energy.current}/{energy.max}
           </p>
+          <p className="game-caption text-[10px] leading-none text-amber-100/70">{energyTimerText}</p>
         </button>
       </div>
       <div className="mt-1.5">

@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { apiClient } from '../api/client';
+import { telegram } from '../lib/telegram';
 import type { ActionResponse } from '../api/contracts';
-import type { AppLanguage, CardRace, EnergyState, GameCard, LeaderboardRow, PlayerProfile, Rarity, StarRank, TabId } from '../types';
+import type { AppLanguage, AvatarMode, CardRace, EnergyState, GameCard, LeaderboardRow, PlayerProfile, Rarity, StarRank, TabId } from '../types';
 import {
   CREATE_CARD_ENERGY_COST,
   ENERGY_REGEN_INTERVAL_MINUTES,
@@ -37,7 +38,9 @@ interface GameStore {
   clearApiError: () => void;
   setActiveTab: (tab: TabId) => void;
   setSelectedAvatarRace: (race: CardRace) => void;
+  setAvatarMode: (mode: AvatarMode) => void;
   updateDisplayName: (displayName: string) => Promise<void>;
+  resetDisplayName: () => Promise<void>;
   setLanguage: (language: AppLanguage) => void;
   setLanguageFromSystem: (languageCode?: string) => void;
   syncEnergyClock: () => void;
@@ -65,6 +68,7 @@ const initialPlayer: PlayerProfile = {
   id: 'demo-player',
   telegramId: 'demo',
   username: 'Telegram Player',
+  avatarMode: 'caste',
   referralCode: 'ref_demo_player',
   selectedAvatarRace: 'orcs',
   level: 1,
@@ -110,6 +114,7 @@ const getLevelRewardTitle = (level: number) => rewardsTable.find((reward) => rew
 
 const createActionId = (name: string) => `${name}_${crypto.randomUUID()}`;
 let avatarRaceSaveTimer: ReturnType<typeof setTimeout> | undefined;
+let avatarRaceSaveVersion = 0;
 
 const regenerateEnergy = (energy: EnergyState, now = Date.now()) => {
   if (energy.current >= energy.max) return energy;
@@ -206,18 +211,35 @@ export const useGameStore = create<GameStore>((set, get) => {
     setSelectedAvatarRace: (race) => {
       const { accessToken, player } = get();
       set({ selectedAvatarRace: race, player: { ...player, selectedAvatarRace: race } });
+      avatarRaceSaveVersion += 1;
       if (!accessToken) return;
 
       if (avatarRaceSaveTimer) clearTimeout(avatarRaceSaveTimer);
       avatarRaceSaveTimer = setTimeout(() => {
         const latest = get();
         if (!latest.accessToken) return;
+        const requestVersion = avatarRaceSaveVersion;
+        const raceToSave = latest.selectedAvatarRace;
 
         void apiClient
-          .updateProfile(latest.accessToken, { selectedAvatarRace: latest.selectedAvatarRace })
-          .then((response) => set({ player: response.player, selectedAvatarRace: response.player.selectedAvatarRace, apiError: undefined }))
+          .updateProfile(latest.accessToken, { selectedAvatarRace: raceToSave })
+          .then((response) => {
+            const current = get();
+            if (requestVersion !== avatarRaceSaveVersion || current.selectedAvatarRace !== raceToSave) return;
+            set({ player: { ...response.player, selectedAvatarRace: raceToSave }, selectedAvatarRace: raceToSave, apiError: undefined });
+          })
           .catch((error) => set({ apiError: error instanceof Error ? error.message : 'Profile update failed.' }));
-      }, 450);
+      }, 180);
+    },
+    setAvatarMode: (mode) => {
+      const { accessToken, player } = get();
+      set({ player: { ...player, avatarMode: mode } });
+      if (!accessToken) return;
+
+      void apiClient
+        .updateProfile(accessToken, { avatarMode: mode })
+        .then((response) => set({ player: response.player, selectedAvatarRace: response.player.selectedAvatarRace, apiError: undefined }))
+        .catch((error) => set({ apiError: error instanceof Error ? error.message : 'Profile update failed.' }));
     },
     updateDisplayName: async (displayName) => {
       const { accessToken } = get();
@@ -226,6 +248,21 @@ export const useGameStore = create<GameStore>((set, get) => {
       set({ isSyncing: true, apiError: undefined });
       try {
         const response = await apiClient.updateProfile(accessToken, { displayName });
+        set({ player: response.player, selectedAvatarRace: response.player.selectedAvatarRace, apiError: undefined });
+      } catch (error) {
+        set({ apiError: error instanceof Error ? error.message : 'Profile update failed.' });
+      } finally {
+        set({ isSyncing: false });
+      }
+    },
+    resetDisplayName: async () => {
+      const { accessToken } = get();
+      if (!accessToken) return;
+
+      const displayName = telegram.getUserDisplayName() ?? 'Telegram Player';
+      set({ isSyncing: true, apiError: undefined });
+      try {
+        const response = await apiClient.updateProfile(accessToken, { displayName, displayNameCustom: false });
         set({ player: response.player, selectedAvatarRace: response.player.selectedAvatarRace, apiError: undefined });
       } catch (error) {
         set({ apiError: error instanceof Error ? error.message : 'Profile update failed.' });

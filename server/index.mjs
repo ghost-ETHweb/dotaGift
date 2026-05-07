@@ -111,6 +111,22 @@ function cleanAvatarRace(value) {
   return ['orcs', 'dwarves', 'assassins', 'demons', 'mages'].includes(value) ? value : null;
 }
 
+function cleanAvatarMode(value) {
+  if (typeof value !== 'string') return null;
+  return ['telegram', 'caste'].includes(value) ? value : null;
+}
+
+function leaderboardSince(period) {
+  const now = new Date();
+  if (period === 'today') {
+    return new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  }
+  if (period === 'week') {
+    return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  }
+  return null;
+}
+
 function telegramDisplayName(telegramUser, fallback = 'Telegram Player') {
   return [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(' ') || telegramUser.username || fallback;
 }
@@ -382,12 +398,14 @@ async function handleUpdateProfile(request, response) {
   const player = await getAuthedPlayer(request);
   const displayName = cleanDisplayName(body.displayName);
   const selectedAvatarRace = cleanAvatarRace(body.selectedAvatarRace);
+  const avatarMode = cleanAvatarMode(body.avatarMode);
 
   if (displayName) {
     player.username = displayName;
-    player.displayNameCustom = true;
+    player.displayNameCustom = body.displayNameCustom === false ? false : true;
   }
   if (selectedAvatarRace) player.selectedAvatarRace = selectedAvatarRace;
+  if (avatarMode) player.avatarMode = avatarMode;
 
   await saveAndSendPlayer(response, request, player, {
     player: toPlayerProfile(player),
@@ -396,15 +414,18 @@ async function handleUpdateProfile(request, response) {
   await trackEvent('profile_update', player, {
     displayNameChanged: Boolean(displayName),
     avatarRaceChanged: Boolean(selectedAvatarRace),
+    avatarModeChanged: Boolean(avatarMode),
   });
 }
 
 async function handleLeaderboard(request, response) {
   const player = await getAuthedPlayer(request);
   const url = getUrl(request);
-  const period = ['today', 'week', 'season', 'allTime'].includes(url.searchParams.get('period')) ? url.searchParams.get('period') : 'season';
+  const period = ['today', 'week', 'allTime'].includes(url.searchParams.get('period')) ? url.searchParams.get('period') : 'today';
   const scope = url.searchParams.get('scope') === 'friends' ? 'friends' : 'all';
   const players = scope === 'friends' ? [player, ...(await storage.listDirectReferrals(player.referralCode))] : await storage.listPlayers();
+  const since = leaderboardSince(period);
+  const xpByPlayer = since ? await storage.getXpByPlayerSince(players.map((item) => item.id), since) : new Map();
   const fullRows = [...players, ...(scope === 'all' && env.allowDevAuth ? demoLeaderboardRows : [])]
     .map((item) => ({
       id: item.id,
@@ -413,12 +434,12 @@ async function handleLeaderboard(request, response) {
       avatarUrl: item.avatarUrl,
       preferredRace: item.selectedAvatarRace ?? 'orcs',
       level: item.level,
-      xp: totalXpForPlayer(item),
+      xp: period === 'allTime' ? totalXpForPlayer(item) : xpByPlayer.get(item.id) ?? 0,
       immortalTrophies: item.trophies.filter((card) => card.rarity === 'immortal').length,
       isCurrentUser: item.id === player.id,
       referredBy: item.referredBy,
     }))
-    .sort((a, b) => b.level - a.level || b.xp - a.xp || b.immortalTrophies - a.immortalTrophies)
+    .sort((a, b) => b.xp - a.xp || b.level - a.level || b.immortalTrophies - a.immortalTrophies)
     .map((row, index) => ({ ...row, rank: index + 1 }));
   const currentUser = fullRows.find((row) => row.isCurrentUser);
   const rows = scope === 'friends' ? fullRows.filter((row) => !row.isCurrentUser) : fullRows;
