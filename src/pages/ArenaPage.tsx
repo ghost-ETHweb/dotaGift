@@ -2,24 +2,17 @@ import { useEffect, useState } from 'react';
 import { Header } from '../shared/Header';
 import { useT, type TranslationKey } from '../shared/i18n';
 import { apiClient } from '../api/client';
-import type { LeaderboardPeriod, LeaderboardScope } from '../api/contracts';
+import type { LeaderboardScope, RaceWarResponse } from '../api/contracts';
 import { raceConfig, raceOrder } from '../config/gameConfig';
-import { baseSeasonScores, partnerBoostCards, raceAbilities, seasonLengthDays, trophyXpPerHour, underdogMultiplierByRank } from '../config/seasonConfig';
+import { raceAbilities, seasonLengthDays, trophyXpPerHour, underdogMultiplierByRank } from '../config/seasonConfig';
 import { useGameStore } from '../store/gameStore';
 import type { LeaderboardRow } from '../types';
 
 type ArenaTab = 'leaderboard' | 'tournaments';
 type TournamentTab = 'raceWar' | 'seasonEvent';
 
-const periods: Array<{ id: LeaderboardPeriod; labelKey: TranslationKey }> = [
-  { id: 'today', labelKey: 'today' },
-  { id: 'week', labelKey: 'week' },
-  { id: 'allTime', labelKey: 'allTime' },
-];
-
 export function ArenaPage() {
   const [activeTab, setActiveTab] = useState<ArenaTab>('leaderboard');
-  const [period, setPeriod] = useState<LeaderboardPeriod>('today');
   const [scope, setScope] = useState<LeaderboardScope>('all');
   const t = useT();
 
@@ -45,20 +38,16 @@ export function ArenaPage() {
           ))}
         </div>
 
-        {activeTab === 'leaderboard' ? <LeaderboardPanel period={period} setPeriod={setPeriod} scope={scope} setScope={setScope} /> : <TournamentsPanel />}
+        {activeTab === 'leaderboard' ? <LeaderboardPanel scope={scope} setScope={setScope} /> : <TournamentsPanel />}
       </section>
     </>
   );
 }
 
 function LeaderboardPanel({
-  period,
-  setPeriod,
   scope,
   setScope,
 }: {
-  period: LeaderboardPeriod;
-  setPeriod: (period: LeaderboardPeriod) => void;
   scope: LeaderboardScope;
   setScope: (scope: LeaderboardScope) => void;
 }) {
@@ -78,7 +67,7 @@ function LeaderboardPanel({
     setError(null);
 
     apiClient
-      .getLeaderboard(accessToken, { period, scope })
+      .getLeaderboard(accessToken, { period: 'allTime', scope })
       .then((response) => {
         if (isCancelled) return;
         setRows(response.rows);
@@ -95,26 +84,12 @@ function LeaderboardPanel({
     return () => {
       isCancelled = true;
     };
-  }, [accessToken, period, scope]);
+  }, [accessToken, scope]);
 
   const uniqueRows = rows.filter((row, index, list) => list.findIndex((item) => item.name === row.name) === index);
 
   return (
     <>
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {periods.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => setPeriod(item.id)}
-            className={`game-label min-h-10 shrink-0 rounded-md px-4 text-sm transition active:scale-[0.99] ${
-              period === item.id ? 'bg-amber-300 text-zinc-950' : 'bg-white/[0.06] text-zinc-300'
-            }`}
-          >
-            {t(item.labelKey)}
-          </button>
-        ))}
-      </div>
       <div className="grid grid-cols-3 gap-0 overflow-hidden rounded-lg border border-cyan-200/20 bg-cyan-300/[0.055] p-1 shadow-[0_0_18px_rgba(34,211,238,0.08)]">
         {[
           { id: 'all' as const, label: t('allPlayers'), icon: 'all' as const },
@@ -148,7 +123,7 @@ function LeaderboardPanel({
             caption={scope === 'friends' ? t('partners') : scope === 'race' ? getRaceLabel(selectedAvatarRace, t) : t('leaderboard')}
           />
         ) : null}
-        {!isLoading && !error ? uniqueRows.map((row) => <LeaderboardRowCard key={`${period}-${scope}-${row.rank}-${row.name}`} row={row} />) : null}
+        {!isLoading && !error ? uniqueRows.map((row) => <LeaderboardRowCard key={`all-time-${scope}-${row.rank}-${row.name}`} row={row} />) : null}
       </div>
 
       {scope !== 'race' && currentUser && !rows.some((row) => row.isCurrentUser) ? (
@@ -279,49 +254,70 @@ function TournamentsPanel() {
 }
 
 function RaceWarPanel() {
-  const trophies = useGameStore((state) => state.trophies);
+  const accessToken = useGameStore((state) => state.accessToken);
   const selectedAvatarRace = useGameStore((state) => state.selectedAvatarRace);
   const [now, setNow] = useState(Date.now());
   const [infoModal, setInfoModal] = useState<{ title: string; body: string } | null>(null);
+  const [raceWar, setRaceWar] = useState<RaceWarResponse | null>(null);
+  const [isRaceWarLoading, setIsRaceWarLoading] = useState(false);
+  const [raceWarError, setRaceWarError] = useState<string | null>(null);
   const t = useT();
   const nextAbilityMs = 4 * 60 * 60 * 1000 - (now % (4 * 60 * 60 * 1000));
   const seasonDurationMs = seasonLengthDays * 24 * 60 * 60 * 1000;
   const seasonEndMs = seasonDurationMs - (now % seasonDurationMs);
-  const trophyCounts = raceOrder.reduce(
-    (acc, race) => {
-      acc[race] = trophies.filter((card) => card.race === race).length;
-      return acc;
-    },
-    {} as Record<(typeof raceOrder)[number], number>,
-  );
-  const rows = raceOrder
-    .map((race) => {
-      const raceView = raceConfig[race];
-      const trophyXp = trophyCounts[race] * trophyXpPerHour.standard;
-      const activeBoost = partnerBoostCards.find((card) => card.status === 'active' && card.targetRace === race);
-      const boostXp = activeBoost ? Math.floor((trophyXp * activeBoost.bonusPercent) / 100) : 0;
-      const hourlyXp = trophyXp + boostXp;
-      const score = baseSeasonScores[race] + trophyCounts[race] * 240;
+  const raceWarRows =
+    raceWar?.rows ??
+    raceOrder.map((race, index) => ({
+      race,
+      rank: index + 1,
+      trophyCount: 0,
+      hourlyXp: 0,
+      score: 0,
+    }));
+  const rows = raceWarRows.map((row) => {
+      const raceView = raceConfig[row.race];
 
       return {
-        race,
+        ...row,
         raceView,
-        score,
-        hourlyXp,
-        trophyCount: trophyCounts[race],
-        activeBoost,
-        ability: raceAbilities[race],
+        ability: raceAbilities[row.race],
       };
-    })
-    .sort((a, b) => b.score - a.score);
+    });
   const maxScore = Math.max(...rows.map((row) => row.score), 1);
-  const myRaceRow = rows.find((row) => row.race === selectedAvatarRace) ?? rows[0];
-  const myContribution = myRaceRow.trophyCount * trophyXpPerHour.standard;
+  const playerRace = raceWar?.playerRace ?? selectedAvatarRace;
+  const myRaceRow = rows.find((row) => row.race === playerRace) ?? rows[0];
+  const myContribution = raceWar?.playerContribution.hourlyXp ?? myRaceRow.trophyCount * trophyXpPerHour.standard;
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(intervalId);
   }, []);
+
+  useEffect(() => {
+    if (!accessToken) return;
+
+    let isCancelled = false;
+    setIsRaceWarLoading(true);
+    setRaceWarError(null);
+
+    apiClient
+      .getRaceWar(accessToken)
+      .then((response) => {
+        if (isCancelled) return;
+        setRaceWar(response);
+      })
+      .catch((requestError: unknown) => {
+        if (isCancelled) return;
+        setRaceWarError(requestError instanceof Error ? requestError.message : 'Race war request failed.');
+      })
+      .finally(() => {
+        if (!isCancelled) setIsRaceWarLoading(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [accessToken]);
 
   return (
     <div className="grid gap-3">
@@ -359,9 +355,11 @@ function RaceWarPanel() {
       </section>
 
       <section className="grid gap-2">
+        {isRaceWarLoading ? <LeaderboardNotice title={t('loading')} caption={t('raceWar')} /> : null}
+        {raceWarError ? <LeaderboardNotice title={t('raceWar')} caption={raceWarError} /> : null}
         {rows.map((row, index) => {
           const progress = Math.max(8, (row.score / maxScore) * 100);
-          const multiplier = underdogMultiplierByRank[index] ?? 1;
+          const multiplier = underdogMultiplierByRank[row.rank - 1] ?? 1;
 
           return (
             <article key={row.race} className={`rounded-lg border bg-white/[0.04] p-3 ${row.raceView.ring}`}>
@@ -375,7 +373,7 @@ function RaceWarPanel() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <p className="game-label truncate">
-                      #{index + 1} {getRaceLabel(row.race, t)}
+                      #{row.rank} {getRaceLabel(row.race, t)}
                     </p>
                     <p className="game-number text-xs text-amber-100">{row.score.toLocaleString()} XP</p>
                   </div>
@@ -405,7 +403,6 @@ function RaceWarPanel() {
               >
                 <p className="game-label text-sm text-cyan-50">{t(`ability${capitalizeRace(row.race)}Name` as TranslationKey)}</p>
                 <p className="game-caption mt-1 text-xs leading-4 text-zinc-300">{t(`ability${capitalizeRace(row.race)}Short` as TranslationKey)}</p>
-                {row.activeBoost ? <p className="game-number mt-2 text-xs text-emerald-200">+{row.activeBoost.bonusPercent}% {row.activeBoost.partner}</p> : null}
               </button>
             </article>
           );

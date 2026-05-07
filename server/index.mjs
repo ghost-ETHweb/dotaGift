@@ -7,6 +7,7 @@ import { createAccessToken, verifyAccessToken } from './lib/token.mjs';
 import { createDevTelegramUser, validateTelegramInitData } from './lib/telegram-auth.mjs';
 import { JsonFileStorage } from './lib/storage.mjs';
 import { PgStorage } from './lib/pg-storage.mjs';
+import { raceOrder } from './config/game-config.mjs';
 import {
   applyEnergyRegen,
   claimRewardAction,
@@ -24,6 +25,7 @@ import {
 
 const env = readEnv();
 const storage = env.databaseUrl ? new PgStorage(env.databaseUrl) : new JsonFileStorage(env.devDbPath);
+const RACE_WAR_TROPHY_XP_PER_HOUR = 10;
 
 const demoLeaderboardRows = [
   { id: 'seed_aegis_hunter', username: 'Aegis Hunter', selectedAvatarRace: 'orcs', level: 88, xp: 92140, trophies: Array.from({ length: 11 }, () => ({ rarity: 'immortal' })) },
@@ -125,6 +127,18 @@ function leaderboardSince(period) {
     return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
   }
   return null;
+}
+
+function safeRace(value) {
+  return raceOrder.includes(value) ? value : 'orcs';
+}
+
+function raceWarTrophyScore(card, now = Date.now()) {
+  const createdAt = Date.parse(card.createdAt ?? 0);
+  if (!Number.isFinite(createdAt)) return RACE_WAR_TROPHY_XP_PER_HOUR;
+
+  const ownedHours = Math.max(1, Math.floor((now - createdAt) / (60 * 60 * 1000)));
+  return ownedHours * RACE_WAR_TROPHY_XP_PER_HOUR;
 }
 
 function telegramDisplayName(telegramUser, fallback = 'Telegram Player') {
@@ -466,6 +480,60 @@ async function handleLeaderboard(request, response) {
   );
 }
 
+async function handleRaceWar(request, response) {
+  const player = await getAuthedPlayer(request);
+  const players = await storage.listPlayers(0);
+  const now = Date.now();
+  const byRace = Object.fromEntries(
+    raceOrder.map((race) => [
+      race,
+      {
+        race,
+        trophyCount: 0,
+        hourlyXp: 0,
+        score: 0,
+      },
+    ]),
+  );
+  const playerContribution = {
+    trophyCount: 0,
+    hourlyXp: 0,
+    score: 0,
+  };
+
+  for (const item of players) {
+    for (const trophy of item.trophies ?? []) {
+      const race = safeRace(trophy.race);
+      const score = raceWarTrophyScore(trophy, now);
+      byRace[race].trophyCount += 1;
+      byRace[race].hourlyXp += RACE_WAR_TROPHY_XP_PER_HOUR;
+      byRace[race].score += score;
+
+      if (item.id === player.id) {
+        playerContribution.trophyCount += 1;
+        playerContribution.hourlyXp += RACE_WAR_TROPHY_XP_PER_HOUR;
+        playerContribution.score += score;
+      }
+    }
+  }
+
+  const rows = Object.values(byRace)
+    .sort((a, b) => b.score - a.score || b.hourlyXp - a.hourlyXp || b.trophyCount - a.trophyCount || raceOrder.indexOf(a.race) - raceOrder.indexOf(b.race))
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+
+  sendJson(
+    response,
+    200,
+    {
+      rows,
+      playerRace: safeRace(player.selectedAvatarRace),
+      playerContribution,
+      serverTime: new Date().toISOString(),
+    },
+    corsHeaders(request),
+  );
+}
+
 async function handleTrophies(request, response) {
   const player = await getAuthedPlayer(request);
   sendJson(response, 200, { trophies: player.trophies, serverTime: new Date().toISOString() }, corsHeaders(request));
@@ -537,6 +605,7 @@ export async function route(request, response) {
   if (method === 'POST' && path === '/api/cards/delete') return handleDeleteCard(request, response);
   if (method === 'POST' && path === '/api/rewards/claim') return handleClaimReward(request, response);
   if (method === 'GET' && path === '/api/leaderboard') return handleLeaderboard(request, response);
+  if (method === 'GET' && path === '/api/race-war') return handleRaceWar(request, response);
   if (method === 'GET' && path === '/api/trophies') return handleTrophies(request, response);
   if (method === 'GET' && path === '/api/referrals/stats') return handleReferralStats(request, response);
   if (method === 'GET' && path === '/api/admin/stats') return handleAdminStats(request, response);

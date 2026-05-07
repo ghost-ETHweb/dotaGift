@@ -10,6 +10,7 @@ import type {
   LeaderboardScope,
   MergeCardsRequest,
   MoveCardRequest,
+  RaceWarResponse,
   ReferralStatsResponse,
   TelegramLoginRequest,
   TelegramLoginResponse,
@@ -58,6 +59,7 @@ export const apiClient = {
   claimReward: (accessToken: string, body: ClaimRewardRequest) => apiRequest<ClaimRewardResponse>('/api/rewards/claim', { accessToken, body }),
   getLeaderboard: (accessToken: string, params: { period: LeaderboardPeriod; scope: LeaderboardScope }) =>
     apiRequest<LeaderboardResponse>(`/api/leaderboard?period=${params.period}&scope=${params.scope}`, { accessToken }),
+  getRaceWar: (accessToken: string) => apiRequest<RaceWarResponse>('/api/race-war', { accessToken }),
   getTrophies: (accessToken: string) => apiRequest<TrophiesResponse>('/api/trophies', { accessToken }),
   getReferralStats: (accessToken: string) => apiRequest<ReferralStatsResponse>('/api/referrals/stats', { accessToken }),
 };

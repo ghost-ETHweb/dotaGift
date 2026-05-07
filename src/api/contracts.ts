@@ -1,4 +1,4 @@
-import type { EnergyState, GameCard, LeaderboardRow, PlayerProfile, Reward } from '../types';
+import type { CardRace, EnergyState, GameCard, LeaderboardRow, PlayerProfile, Reward } from '../types';
 
 export type LeaderboardPeriod = 'today' | 'week' | 'allTime';
 
@@ -83,6 +83,25 @@ export interface LeaderboardResponse {
   currentUser: LeaderboardRow;
   period: LeaderboardPeriod;
   scope: LeaderboardScope;
+  serverTime: string;
+}
+
+export interface RaceWarRow {
+  race: CardRace;
+  rank: number;
+  trophyCount: number;
+  hourlyXp: number;
+  score: number;
+}
+
+export interface RaceWarResponse {
+  rows: RaceWarRow[];
+  playerRace: CardRace;
+  playerContribution: {
+    trophyCount: number;
+    hourlyXp: number;
+    score: number;
+  };
   serverTime: string;
 }
 

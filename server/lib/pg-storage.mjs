@@ -276,9 +276,11 @@ export class PgStorage {
     }
   }
 
-  async listPlayers() {
+  async listPlayers(limit = 250) {
     await this.ready;
-    const result = await this.pool.query('SELECT * FROM players ORDER BY level DESC, xp DESC LIMIT 250');
+    const query = Number.isInteger(limit) && limit > 0 ? 'SELECT * FROM players ORDER BY level DESC, xp DESC LIMIT $1' : 'SELECT * FROM players ORDER BY level DESC, xp DESC';
+    const params = Number.isInteger(limit) && limit > 0 ? [limit] : [];
+    const result = await this.pool.query(query, params);
     return Promise.all(result.rows.map((row) => this.hydratePlayer(row)));
   }
 
