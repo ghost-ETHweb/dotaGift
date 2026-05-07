@@ -578,6 +578,7 @@ async function handleRaceWar(request, response) {
       {
         race,
         trophyCount: 0,
+        followersCount: 0,
         hourlyXp: 0,
         score: 0,
         abilityScore: 0,
@@ -591,6 +592,10 @@ async function handleRaceWar(request, response) {
   };
 
   for (const item of players) {
+    if (item.raceSeasonId === season.id && item.seasonRace) {
+      byRace[safeRace(item.seasonRace)].followersCount += 1;
+    }
+
     for (const trophy of item.trophies ?? []) {
       const race = safeRace(trophy.race);
       const score = raceWarTrophyScore(trophy, now);

@@ -273,6 +273,7 @@ function RaceWarPanel() {
       race,
       rank: index + 1,
       trophyCount: 0,
+      followersCount: 0,
       hourlyXp: 0,
       score: 0,
       abilityScore: 0,
@@ -421,7 +422,13 @@ function RaceWarPanel() {
                     <p className="game-label truncate">
                       #{row.rank} {getRaceLabel(row.race, t)}
                     </p>
-                    <p className="game-number text-xs text-amber-100">{row.score.toLocaleString()} XP</p>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <span className="game-number inline-flex items-center gap-1 rounded-full border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-cyan-100">
+                        <FollowersIcon />
+                        {row.followersCount}
+                      </span>
+                      <p className="game-number text-xs text-amber-100">{row.score.toLocaleString()} XP</p>
+                    </div>
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/28">
                     <div className="h-full rounded-full" style={{ width: `${progress}%`, backgroundColor: row.raceView.accent }} />
@@ -529,6 +536,17 @@ function SeasonMetric({ label, value }: { label: string; value: string }) {
       <p className="game-caption text-[10px] uppercase text-zinc-500">{label}</p>
       <p className="game-number mt-0.5 text-sm text-zinc-100">{value}</p>
     </div>
+  );
+}
+
+function FollowersIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-3.5" aria-hidden="true">
+      <circle cx="9" cy="9" r="3" />
+      <circle cx="17" cy="10" r="2.5" />
+      <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
+      <path d="M14.5 18.5a4.5 4.5 0 0 1 6 0" />
+    </svg>
   );
 }
 

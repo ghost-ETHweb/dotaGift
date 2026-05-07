@@ -94,6 +94,7 @@ export interface RaceWarRow {
   race: CardRace;
   rank: number;
   trophyCount: number;
+  followersCount: number;
   hourlyXp: number;
   score: number;
   abilityScore: number;
