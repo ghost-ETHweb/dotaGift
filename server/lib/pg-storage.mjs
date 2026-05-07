@@ -39,6 +39,8 @@ function playerRowToBase(row) {
     referralCode: row.referral_code,
     referredBy: row.referred_by ?? null,
     selectedAvatarRace: row.selected_avatar_race,
+    seasonRace: row.season_race ?? null,
+    raceSeasonId: row.race_season_id ?? null,
     level: row.level,
     xp: row.xp,
     invitedCount: row.invited_count,
@@ -80,7 +82,9 @@ export class PgStorage {
     await this.pool.query(`
       ALTER TABLE players
         ADD COLUMN IF NOT EXISTS display_name_custom BOOLEAN NOT NULL DEFAULT false,
-        ADD COLUMN IF NOT EXISTS avatar_mode TEXT NOT NULL DEFAULT 'caste'
+        ADD COLUMN IF NOT EXISTS avatar_mode TEXT NOT NULL DEFAULT 'caste',
+        ADD COLUMN IF NOT EXISTS season_race TEXT,
+        ADD COLUMN IF NOT EXISTS race_season_id TEXT
     `);
     await this.pool.query('CREATE INDEX IF NOT EXISTS players_referred_by_idx ON players (referred_by)');
     await this.pool.query(`
@@ -151,16 +155,17 @@ export class PgStorage {
       await client.query(
         `
           INSERT INTO players (
-            id, telegram_id, username, display_name_custom, avatar_url, avatar_mode, language_code, referral_code, referred_by, selected_avatar_race,
+            id, telegram_id, username, display_name_custom, avatar_url, avatar_mode, language_code, referral_code, referred_by, selected_avatar_race, season_race, race_season_id,
             level, xp, energy_current, energy_max, energy_next_regen_at,
             invited_count, active_invited_count, referral_level,
             stats_created, stats_merged, stats_deleted, stats_trophies, created_at, updated_at
           )
           VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            $11, $12, $13, $14, $15,
-            $16, $17, $18,
-            $19, $20, $21, $22, COALESCE($23, now()), now()
+            $11, $12,
+            $13, $14, $15, $16, $17,
+            $18, $19, $20,
+            $21, $22, $23, $24, COALESCE($25, now()), now()
           )
           ON CONFLICT (id) DO UPDATE SET
             telegram_id = EXCLUDED.telegram_id,
@@ -172,6 +177,8 @@ export class PgStorage {
             referral_code = EXCLUDED.referral_code,
             referred_by = EXCLUDED.referred_by,
             selected_avatar_race = EXCLUDED.selected_avatar_race,
+            season_race = EXCLUDED.season_race,
+            race_season_id = EXCLUDED.race_season_id,
             level = EXCLUDED.level,
             xp = EXCLUDED.xp,
             energy_current = EXCLUDED.energy_current,
@@ -197,6 +204,8 @@ export class PgStorage {
           player.referralCode,
           player.referredBy ?? null,
           player.selectedAvatarRace ?? 'orcs',
+          player.seasonRace ?? null,
+          player.raceSeasonId ?? null,
           player.level,
           player.xp,
           player.energy.current,

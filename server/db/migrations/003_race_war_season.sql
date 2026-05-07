@@ -1,0 +1,3 @@
+ALTER TABLE players
+  ADD COLUMN IF NOT EXISTS season_race TEXT,
+  ADD COLUMN IF NOT EXISTS race_season_id TEXT;

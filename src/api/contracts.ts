@@ -53,6 +53,10 @@ export interface UpdateProfileRequest {
   avatarMode?: string;
 }
 
+export interface SelectSeasonRaceRequest {
+  race: CardRace;
+}
+
 export interface ActionResponse {
   board: Array<GameCard | null>;
   trophies: GameCard[];
@@ -92,11 +96,15 @@ export interface RaceWarRow {
   trophyCount: number;
   hourlyXp: number;
   score: number;
+  abilityScore: number;
 }
 
 export interface RaceWarResponse {
   rows: RaceWarRow[];
-  playerRace: CardRace;
+  playerRace: CardRace | null;
+  seasonId: string;
+  seasonEndsAt: string;
+  nextAbilityAt: string;
   playerContribution: {
     trophyCount: number;
     hourlyXp: number;

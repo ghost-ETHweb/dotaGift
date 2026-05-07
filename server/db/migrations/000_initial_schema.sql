@@ -8,6 +8,8 @@ CREATE TABLE IF NOT EXISTS players (
   referral_code TEXT NOT NULL UNIQUE,
   referred_by TEXT,
   selected_avatar_race TEXT NOT NULL DEFAULT 'orcs',
+  season_race TEXT,
+  race_season_id TEXT,
   level INTEGER NOT NULL DEFAULT 1,
   xp INTEGER NOT NULL DEFAULT 0,
   energy_current INTEGER NOT NULL DEFAULT 25,

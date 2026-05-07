@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { apiClient } from '../api/client';
 import { telegram } from '../lib/telegram';
-import type { ActionResponse } from '../api/contracts';
+import type { ActionResponse, RaceWarResponse } from '../api/contracts';
 import type { AppLanguage, AvatarMode, CardRace, EnergyState, GameCard, LeaderboardRow, PlayerProfile, Rarity, StarRank, TabId } from '../types';
 import {
   CREATE_CARD_ENERGY_COST,
@@ -38,6 +38,7 @@ interface GameStore {
   clearApiError: () => void;
   setActiveTab: (tab: TabId) => void;
   setSelectedAvatarRace: (race: CardRace) => void;
+  setSeasonRace: (race: CardRace) => Promise<RaceWarResponse | undefined>;
   setAvatarMode: (mode: AvatarMode) => void;
   updateDisplayName: (displayName: string) => Promise<void>;
   resetDisplayName: () => Promise<void>;
@@ -71,6 +72,8 @@ const initialPlayer: PlayerProfile = {
   avatarMode: 'caste',
   referralCode: 'ref_demo_player',
   selectedAvatarRace: 'orcs',
+  seasonRace: null,
+  raceSeasonId: null,
   level: 1,
   xp: 260,
   xpToNextLevel: xpToNextLevel(1),
@@ -152,7 +155,15 @@ export const useGameStore = create<GameStore>((set, get) => {
     });
   };
 
-  const runServerAction = async (action: (accessToken: string) => Promise<ActionResponse>) => {
+  const applyOptimisticBoard = (nextBoard: Array<GameCard | null>) => {
+    set({ board: nextBoard });
+  };
+
+  const rollbackBoard = (previousBoard: Array<GameCard | null>, previousTrophies: GameCard[]) => {
+    set({ board: previousBoard, trophies: previousTrophies });
+  };
+
+  const runServerAction = async (action: (accessToken: string) => Promise<ActionResponse>, onError?: () => void) => {
     const { accessToken, isSyncing } = get();
     if (!accessToken || isSyncing) return;
 
@@ -160,6 +171,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     try {
       applyActionResponse(await action(accessToken));
     } catch (error) {
+      onError?.();
       set({ apiError: error instanceof Error ? error.message : 'Server sync failed.' });
     } finally {
       set({ isSyncing: false });
@@ -231,6 +243,29 @@ export const useGameStore = create<GameStore>((set, get) => {
           .catch((error) => set({ apiError: error instanceof Error ? error.message : 'Profile update failed.' }));
       }, 180);
     },
+    setSeasonRace: async (race) => {
+      const { accessToken, player } = get();
+      if (!accessToken || player.seasonRace) return undefined;
+
+      set({ isSyncing: true, apiError: undefined });
+      try {
+        const response = await apiClient.selectSeasonRace(accessToken, { race });
+        set({
+          player: {
+            ...get().player,
+            seasonRace: response.playerRace,
+            raceSeasonId: response.seasonId,
+          },
+          apiError: undefined,
+        });
+        return response;
+      } catch (error) {
+        set({ apiError: error instanceof Error ? error.message : 'Race selection failed.' });
+        return undefined;
+      } finally {
+        set({ isSyncing: false });
+      }
+    },
     setAvatarMode: (mode) => {
       const { accessToken, player } = get();
       set({ player: { ...player, avatarMode: mode } });
@@ -289,16 +324,70 @@ export const useGameStore = create<GameStore>((set, get) => {
       });
     },
     createCard: () => runServerAction((accessToken) => apiClient.createCard(accessToken, { clientActionId: createActionId('create') })),
-    moveCard: (cardId, targetIndex) =>
-      runServerAction((accessToken) => apiClient.moveCard(accessToken, { clientActionId: createActionId('move'), cardId, targetIndex })),
-    mergeCards: (sourceCardId, targetCardId) =>
-      runServerAction((accessToken) =>
-        apiClient.mergeCards(accessToken, {
-          clientActionId: createActionId('merge'),
-          firstCardId: sourceCardId,
-          secondCardId: targetCardId,
-        }),
-      ),
+    moveCard: (cardId, targetIndex) => {
+      const { board, trophies } = get();
+      const sourceIndex = board.findIndex((card) => card?.id === cardId);
+      if (sourceIndex >= 0 && !board[targetIndex]) {
+        const nextBoard = [...board];
+        const card = nextBoard[sourceIndex];
+        nextBoard[sourceIndex] = null;
+        nextBoard[targetIndex] = card ? { ...card, boardIndex: targetIndex } : null;
+        applyOptimisticBoard(nextBoard);
+      }
+
+      return runServerAction(
+        (accessToken) => apiClient.moveCard(accessToken, { clientActionId: createActionId('move'), cardId, targetIndex }),
+        () => rollbackBoard(board, trophies),
+      );
+    },
+    mergeCards: (sourceCardId, targetCardId) => {
+      const { board, trophies } = get();
+      const sourceIndex = board.findIndex((card) => card?.id === sourceCardId);
+      const targetIndex = board.findIndex((card) => card?.id === targetCardId);
+      const sourceCard = sourceIndex >= 0 ? board[sourceIndex] : null;
+      const targetCard = targetIndex >= 0 ? board[targetIndex] : null;
+
+      if (sourceCard && targetCard && sourceCard.race === targetCard.race && sourceCard.stars === targetCard.stars) {
+        const nextBoard = [...board];
+        if (sourceCard.stars === 6) {
+          const trophy = {
+            ...targetCard,
+            id: `optimistic_${targetCard.id}`,
+            state: 'trophy' as const,
+            boardIndex: undefined,
+            mergedFrom: [sourceCard.id, targetCard.id],
+            createdAt: new Date().toISOString(),
+            source: 'merge' as const,
+          };
+          nextBoard[sourceIndex] = null;
+          nextBoard[targetIndex] = null;
+          set({ board: nextBoard, trophies: [trophy, ...trophies] });
+        } else {
+          const nextStars = (targetCard.stars + 1) as StarRank;
+          nextBoard[sourceIndex] = null;
+          nextBoard[targetIndex] = {
+            ...targetCard,
+            id: `optimistic_${targetCard.id}`,
+            stars: nextStars,
+            rarity: rarityByStars[nextStars] as Rarity,
+            source: 'merge',
+            mergedFrom: [sourceCard.id, targetCard.id],
+            createdAt: new Date().toISOString(),
+          };
+          applyOptimisticBoard(nextBoard);
+        }
+      }
+
+      return runServerAction(
+        (accessToken) =>
+          apiClient.mergeCards(accessToken, {
+            clientActionId: createActionId('merge'),
+            firstCardId: sourceCardId,
+            secondCardId: targetCardId,
+          }),
+        () => rollbackBoard(board, trophies),
+      );
+    },
     deleteCard: (cardId) => runServerAction((accessToken) => apiClient.deleteCard(accessToken, { clientActionId: createActionId('delete'), cardId })),
     claimReward: async (rewardId) => {
       const { accessToken, isSyncing } = get();

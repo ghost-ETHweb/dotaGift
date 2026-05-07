@@ -52,6 +52,8 @@ export interface PlayerProfile {
   avatarMode: AvatarMode;
   referralCode: string;
   selectedAvatarRace: CardRace;
+  seasonRace?: CardRace | null;
+  raceSeasonId?: string | null;
   level: number;
   xp: number;
   xpToNextLevel: number;

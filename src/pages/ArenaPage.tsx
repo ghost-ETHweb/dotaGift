@@ -4,9 +4,9 @@ import { useT, type TranslationKey } from '../shared/i18n';
 import { apiClient } from '../api/client';
 import type { LeaderboardScope, RaceWarResponse } from '../api/contracts';
 import { raceConfig, raceOrder } from '../config/gameConfig';
-import { raceAbilities, seasonLengthDays, trophyXpPerHour, underdogMultiplierByRank } from '../config/seasonConfig';
+import { raceAbilities, seasonLengthDays, trophyXpPerHour } from '../config/seasonConfig';
 import { useGameStore } from '../store/gameStore';
-import type { LeaderboardRow } from '../types';
+import type { CardRace, LeaderboardRow } from '../types';
 
 type ArenaTab = 'leaderboard' | 'tournaments';
 type TournamentTab = 'raceWar' | 'seasonEvent';
@@ -52,7 +52,7 @@ function LeaderboardPanel({
   setScope: (scope: LeaderboardScope) => void;
 }) {
   const accessToken = useGameStore((state) => state.accessToken);
-  const selectedAvatarRace = useGameStore((state) => state.selectedAvatarRace);
+  const player = useGameStore((state) => state.player);
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
   const [currentUser, setCurrentUser] = useState<LeaderboardRow | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -120,7 +120,7 @@ function LeaderboardPanel({
         {!isLoading && !error && uniqueRows.length === 0 ? (
           <LeaderboardNotice
             title={scope === 'friends' ? t('friendsLeaderboardEmpty') : scope === 'race' ? t('raceBoardEmpty') : t('leaderboardEmpty')}
-            caption={scope === 'friends' ? t('partners') : scope === 'race' ? getRaceLabel(selectedAvatarRace, t) : t('leaderboard')}
+            caption={scope === 'friends' ? t('partners') : scope === 'race' && player.seasonRace ? getRaceLabel(player.seasonRace, t) : t('chooseSeasonRace')}
           />
         ) : null}
         {!isLoading && !error ? uniqueRows.map((row) => <LeaderboardRowCard key={`all-time-${scope}-${row.rank}-${row.name}`} row={row} />) : null}
@@ -255,7 +255,9 @@ function TournamentsPanel() {
 
 function RaceWarPanel() {
   const accessToken = useGameStore((state) => state.accessToken);
-  const selectedAvatarRace = useGameStore((state) => state.selectedAvatarRace);
+  const player = useGameStore((state) => state.player);
+  const setSeasonRace = useGameStore((state) => state.setSeasonRace);
+  const isSyncing = useGameStore((state) => state.isSyncing);
   const [now, setNow] = useState(Date.now());
   const [infoModal, setInfoModal] = useState<{ title: string; body: string } | null>(null);
   const [raceWar, setRaceWar] = useState<RaceWarResponse | null>(null);
@@ -273,6 +275,7 @@ function RaceWarPanel() {
       trophyCount: 0,
       hourlyXp: 0,
       score: 0,
+      abilityScore: 0,
     }));
   const rows = raceWarRows.map((row) => {
       const raceView = raceConfig[row.race];
@@ -284,9 +287,13 @@ function RaceWarPanel() {
       };
     });
   const maxScore = Math.max(...rows.map((row) => row.score), 1);
-  const playerRace = raceWar?.playerRace ?? selectedAvatarRace;
+  const playerRace = raceWar?.playerRace ?? player.seasonRace ?? null;
   const myRaceRow = rows.find((row) => row.race === playerRace) ?? rows[0];
   const myContribution = raceWar?.playerContribution.hourlyXp ?? myRaceRow.trophyCount * trophyXpPerHour.standard;
+  const seasonEndsAt = raceWar?.seasonEndsAt ? Date.parse(raceWar.seasonEndsAt) : now + seasonEndMs;
+  const nextAbilityAt = raceWar?.nextAbilityAt ? Date.parse(raceWar.nextAbilityAt) : now + nextAbilityMs;
+  const displayedSeasonEndMs = seasonEndsAt - now;
+  const displayedNextAbilityMs = nextAbilityAt - now;
 
   useEffect(() => {
     const intervalId = window.setInterval(() => setNow(Date.now()), 1000);
@@ -325,7 +332,7 @@ function RaceWarPanel() {
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="game-caption text-xs uppercase text-amber-100/75">{t('raceTournament')}</p>
-            <p className="game-number mt-1 text-2xl text-cyan-50">{formatSeasonTimer(seasonEndMs)}</p>
+            <p className="game-number mt-1 text-2xl text-cyan-50">{formatSeasonTimer(displayedSeasonEndMs)}</p>
             <p className="game-caption mt-1 text-sm text-zinc-400">{t('seasonEndsIn')}</p>
           </div>
           <TournamentIcon compact />
@@ -337,29 +344,68 @@ function RaceWarPanel() {
             className="rounded-md border border-white/10 bg-black/18 p-3 text-left transition active:scale-[0.99]"
           >
             <p className="game-caption text-xs text-zinc-500">{t('nextAbility')}</p>
-            <p className="game-number mt-1 text-lg text-cyan-100">{formatTournamentTimer(nextAbilityMs)}</p>
+            <p className="game-number mt-1 text-lg text-cyan-100">{formatTournamentTimer(displayedNextAbilityMs)}</p>
           </button>
-          <div className={`flex items-center gap-3 rounded-md border bg-black/18 p-3 ${myRaceRow.raceView.ring}`}>
-            <span
-              className={`game-label grid size-9 shrink-0 place-items-center rounded-full border text-xs ${myRaceRow.raceView.ring}`}
-              style={{ background: `linear-gradient(135deg, ${myRaceRow.raceView.accent} 0%, #111827 100%)` }}
-            >
-              {myRaceRow.raceView.imageUrl}
-            </span>
-            <span className="min-w-0">
-              <p className="game-caption text-xs text-zinc-500">{t('yourRace')}</p>
-              <p className="game-number mt-1 truncate text-lg text-amber-100">{getRaceLabel(myRaceRow.race, t)}</p>
-            </span>
-          </div>
+          {playerRace ? (
+            <div className={`flex items-center gap-3 rounded-md border bg-black/18 p-3 ${myRaceRow.raceView.ring}`}>
+              <span
+                className={`game-label grid size-9 shrink-0 place-items-center rounded-full border text-xs ${myRaceRow.raceView.ring}`}
+                style={{ background: `linear-gradient(135deg, ${myRaceRow.raceView.accent} 0%, #111827 100%)` }}
+              >
+                {myRaceRow.raceView.imageUrl}
+              </span>
+              <span className="min-w-0">
+                <p className="game-caption text-xs text-zinc-500">{t('yourRace')}</p>
+                <p className="game-number mt-1 truncate text-lg text-amber-100">{getRaceLabel(myRaceRow.race, t)}</p>
+              </span>
+            </div>
+          ) : (
+            <div className="rounded-md border border-amber-200/20 bg-amber-300/[0.075] p-3">
+              <p className="game-caption text-xs text-amber-100/80">{t('chooseSeasonRace')}</p>
+              <p className="game-number mt-1 text-sm text-amber-50">{t('seasonRaceLocked')}</p>
+            </div>
+          )}
         </div>
       </section>
+
+      {!playerRace ? (
+        <section className="rounded-lg border border-cyan-200/18 bg-cyan-300/[0.045] p-3">
+          <p className="game-label text-cyan-50">{t('chooseSeasonRace')}</p>
+          <p className="game-caption mt-1 text-xs leading-5 text-zinc-400">{t('seasonRaceLockedText')}</p>
+          <div className="mt-3 grid grid-cols-5 gap-2">
+            {raceOrder.map((race) => {
+              const config = raceConfig[race];
+              return (
+                <button
+                  key={race}
+                  type="button"
+                  disabled={isSyncing}
+                  onClick={() => {
+                    void setSeasonRace(race as CardRace).then((response) => {
+                      if (response) setRaceWar(response);
+                    });
+                  }}
+                  className={`min-h-16 rounded-md border bg-black/18 p-2 text-center transition active:scale-[0.98] disabled:opacity-50 ${config.ring}`}
+                >
+                  <span
+                    className={`game-label mx-auto grid size-8 place-items-center rounded-full border text-xs ${config.ring}`}
+                    style={{ background: `linear-gradient(135deg, ${config.accent} 0%, #111827 100%)` }}
+                  >
+                    {config.imageUrl}
+                  </span>
+                  <span className="game-caption mt-1 block truncate text-[10px] text-zinc-300">{getRaceLabel(race, t)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid gap-2">
         {isRaceWarLoading ? <LeaderboardNotice title={t('loading')} caption={t('raceWar')} /> : null}
         {raceWarError ? <LeaderboardNotice title={t('raceWar')} caption={raceWarError} /> : null}
-        {rows.map((row, index) => {
+        {rows.map((row) => {
           const progress = Math.max(8, (row.score / maxScore) * 100);
-          const multiplier = underdogMultiplierByRank[row.rank - 1] ?? 1;
 
           return (
             <article key={row.race} className={`rounded-lg border bg-white/[0.04] p-3 ${row.raceView.ring}`}>
@@ -385,7 +431,7 @@ function RaceWarPanel() {
               <div className="mt-3 grid grid-cols-3 gap-2 text-center">
                 <SeasonMetric label={t('hourly')} value={`+${row.hourlyXp}`} />
                 <SeasonMetric label={t('trophies')} value={String(row.trophyCount)} />
-                <SeasonMetric label={t('underdog')} value={`x${multiplier}`} />
+                <SeasonMetric label={t('ability')} value={`+${row.abilityScore}`} />
               </div>
               <button
                 type="button"

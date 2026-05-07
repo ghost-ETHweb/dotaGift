@@ -12,6 +12,7 @@ import type {
   MoveCardRequest,
   RaceWarResponse,
   ReferralStatsResponse,
+  SelectSeasonRaceRequest,
   TelegramLoginRequest,
   TelegramLoginResponse,
   TrophiesResponse,
@@ -60,6 +61,7 @@ export const apiClient = {
   getLeaderboard: (accessToken: string, params: { period: LeaderboardPeriod; scope: LeaderboardScope }) =>
     apiRequest<LeaderboardResponse>(`/api/leaderboard?period=${params.period}&scope=${params.scope}`, { accessToken }),
   getRaceWar: (accessToken: string) => apiRequest<RaceWarResponse>('/api/race-war', { accessToken }),
+  selectSeasonRace: (accessToken: string, body: SelectSeasonRaceRequest) => apiRequest<RaceWarResponse>('/api/race-war/select-race', { accessToken, body }),
   getTrophies: (accessToken: string) => apiRequest<TrophiesResponse>('/api/trophies', { accessToken }),
   getReferralStats: (accessToken: string) => apiRequest<ReferralStatsResponse>('/api/referrals/stats', { accessToken }),
 };

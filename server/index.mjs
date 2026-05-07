@@ -26,6 +26,8 @@ import {
 const env = readEnv();
 const storage = env.databaseUrl ? new PgStorage(env.databaseUrl) : new JsonFileStorage(env.devDbPath);
 const RACE_WAR_TROPHY_XP_PER_HOUR = 10;
+const RACE_WAR_SEASON_DAYS = 28;
+const RACE_WAR_ABILITY_HOURS = 4;
 
 const demoLeaderboardRows = [
   { id: 'seed_aegis_hunter', username: 'Aegis Hunter', selectedAvatarRace: 'orcs', level: 88, xp: 92140, trophies: Array.from({ length: 11 }, () => ({ rarity: 'immortal' })) },
@@ -139,6 +141,87 @@ function raceWarTrophyScore(card, now = Date.now()) {
 
   const ownedHours = Math.max(1, Math.floor((now - createdAt) / (60 * 60 * 1000)));
   return ownedHours * RACE_WAR_TROPHY_XP_PER_HOUR;
+}
+
+function getRaceWarSeason(now = Date.now()) {
+  const seasonMs = RACE_WAR_SEASON_DAYS * 24 * 60 * 60 * 1000;
+  const abilityMs = RACE_WAR_ABILITY_HOURS * 60 * 60 * 1000;
+  const seasonIndex = Math.floor(now / seasonMs);
+  const seasonStart = seasonIndex * seasonMs;
+  const seasonEnd = seasonStart + seasonMs;
+  const completedCycles = Math.floor((now - seasonStart) / abilityMs);
+  const nextAbilityAt = seasonStart + (completedCycles + 1) * abilityMs;
+
+  return {
+    id: `race-war-${seasonIndex}`,
+    startedAt: new Date(seasonStart).toISOString(),
+    endsAt: new Date(seasonEnd).toISOString(),
+    nextAbilityAt: new Date(Math.min(nextAbilityAt, seasonEnd)).toISOString(),
+    completedCycles,
+  };
+}
+
+function resetExpiredRaceChoice(player, seasonId) {
+  if (player.raceSeasonId && player.raceSeasonId !== seasonId) {
+    player.seasonRace = null;
+    player.raceSeasonId = null;
+  }
+}
+
+function rankRaceRows(rows) {
+  return rows
+    .sort((a, b) => b.score - a.score || b.hourlyXp - a.hourlyXp || b.trophyCount - a.trophyCount || raceOrder.indexOf(a.race) - raceOrder.indexOf(b.race))
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+}
+
+function applyRaceAbilities(byRace, completedCycles) {
+  if (completedCycles <= 0) return;
+
+  const baseRanking = rankRaceRows(Object.values(byRace).map((row) => ({ ...row })));
+  const leader = baseRanking[0];
+  const second = baseRanking[1] ?? leader;
+  const fastest = [...baseRanking].sort((a, b) => b.hourlyXp - a.hourlyXp || b.score - a.score)[0] ?? leader;
+  const orcsRank = baseRanking.find((row) => row.race === 'orcs')?.rank ?? Number.POSITIVE_INFINITY;
+  const aboveOrcs = baseRanking.find((row) => row.race !== 'orcs' && row.rank < orcsRank) ?? (leader.race === 'orcs' ? second : leader);
+  const demonTarget = leader.race === 'demons' ? second : leader;
+  const assassinTarget = fastest.race === 'assassins' ? leader : fastest;
+
+  const addAbilityScore = (race, amount) => {
+    const safeAmount = Math.max(0, Math.floor(amount));
+    byRace[race].score += safeAmount;
+    byRace[race].abilityScore += safeAmount;
+  };
+  const transferScore = (fromRace, toRace, amount) => {
+    const safeAmount = Math.max(0, Math.floor(amount));
+    byRace[fromRace].score = Math.max(0, byRace[fromRace].score - safeAmount);
+    byRace[toRace].score += safeAmount;
+    byRace[toRace].abilityScore += safeAmount;
+  };
+  const transferHourly = (fromRace, toRace, amount) => {
+    const safeAmount = Math.max(0, Math.floor(amount));
+    byRace[fromRace].hourlyXp = Math.max(0, byRace[fromRace].hourlyXp - safeAmount);
+    byRace[toRace].hourlyXp += safeAmount;
+  };
+
+  const cycleScale = completedCycles;
+  const demonHourlyDrain = Math.max(1, Math.floor((byRace[demonTarget.race].hourlyXp || 10) * 0.12));
+  transferHourly(demonTarget.race, 'demons', demonHourlyDrain);
+  transferScore(demonTarget.race, 'demons', demonHourlyDrain * RACE_WAR_ABILITY_HOURS * cycleScale);
+
+  const mageBonus = Math.max(20, byRace.mages.trophyCount * 18 + Math.floor((leader.score - byRace.mages.score) * 0.01));
+  addAbilityScore('mages', mageBonus * cycleScale);
+  byRace.mages.hourlyXp += Math.max(1, Math.floor(mageBonus / RACE_WAR_ABILITY_HOURS));
+
+  const orcRaid = Math.max(15, Math.floor((byRace[aboveOrcs.race].hourlyXp || 10) * RACE_WAR_ABILITY_HOURS * 0.2));
+  transferScore(aboveOrcs.race, 'orcs', orcRaid * cycleScale);
+
+  const dwarfMine = Math.max(25, byRace.dwarves.trophyCount * 22);
+  addAbilityScore('dwarves', dwarfMine * cycleScale);
+  byRace.dwarves.hourlyXp += Math.max(1, Math.floor(dwarfMine / RACE_WAR_ABILITY_HOURS));
+
+  const assassinCopy = Math.max(18, Math.floor((byRace[assassinTarget.race].hourlyXp || 10) * RACE_WAR_ABILITY_HOURS * 0.16));
+  addAbilityScore('assassins', assassinCopy * cycleScale);
+  byRace.assassins.hourlyXp += Math.max(1, Math.floor(assassinCopy / RACE_WAR_ABILITY_HOURS));
 }
 
 function telegramDisplayName(telegramUser, fallback = 'Telegram Player') {
@@ -434,6 +517,8 @@ async function handleUpdateProfile(request, response) {
 
 async function handleLeaderboard(request, response) {
   const player = await getAuthedPlayer(request);
+  const season = getRaceWarSeason();
+  resetExpiredRaceChoice(player, season.id);
   const url = getUrl(request);
   const period = ['today', 'week', 'allTime'].includes(url.searchParams.get('period')) ? url.searchParams.get('period') : 'today';
   const requestedScope = url.searchParams.get('scope');
@@ -441,7 +526,7 @@ async function handleLeaderboard(request, response) {
   const players =
     scope === 'friends'
       ? [player, ...(await storage.listDirectReferrals(player.referralCode))]
-      : (await storage.listPlayers()).filter((item) => scope !== 'race' || (item.selectedAvatarRace ?? 'orcs') === (player.selectedAvatarRace ?? 'orcs'));
+      : (await storage.listPlayers()).filter((item) => scope !== 'race' || (player.seasonRace && item.seasonRace === player.seasonRace && item.raceSeasonId === season.id));
   const since = leaderboardSince(period);
   const xpByPlayer = since ? await storage.getXpByPlayerSince(players.map((item) => item.id), since) : new Map();
   const demoRows =
@@ -454,7 +539,7 @@ async function handleLeaderboard(request, response) {
       rank: 0,
       name: item.username,
       avatarUrl: item.avatarUrl,
-      preferredRace: item.selectedAvatarRace ?? 'orcs',
+      preferredRace: item.seasonRace ?? item.selectedAvatarRace ?? 'orcs',
       level: item.level,
       xp: period === 'allTime' ? totalXpForPlayer(item) : xpByPlayer.get(item.id) ?? 0,
       immortalTrophies: item.trophies.filter((card) => card.rarity === 'immortal').length,
@@ -482,6 +567,9 @@ async function handleLeaderboard(request, response) {
 
 async function handleRaceWar(request, response) {
   const player = await getAuthedPlayer(request);
+  const season = getRaceWarSeason();
+  resetExpiredRaceChoice(player, season.id);
+  await storage.savePlayer(player);
   const players = await storage.listPlayers(0);
   const now = Date.now();
   const byRace = Object.fromEntries(
@@ -492,6 +580,7 @@ async function handleRaceWar(request, response) {
         trophyCount: 0,
         hourlyXp: 0,
         score: 0,
+        abilityScore: 0,
       },
     ]),
   );
@@ -517,21 +606,45 @@ async function handleRaceWar(request, response) {
     }
   }
 
-  const rows = Object.values(byRace)
-    .sort((a, b) => b.score - a.score || b.hourlyXp - a.hourlyXp || b.trophyCount - a.trophyCount || raceOrder.indexOf(a.race) - raceOrder.indexOf(b.race))
-    .map((row, index) => ({ ...row, rank: index + 1 }));
+  applyRaceAbilities(byRace, season.completedCycles);
+  const rows = rankRaceRows(Object.values(byRace));
 
   sendJson(
     response,
     200,
     {
       rows,
-      playerRace: safeRace(player.selectedAvatarRace),
+      playerRace: player.raceSeasonId === season.id ? safeRace(player.seasonRace) : null,
+      seasonId: season.id,
+      seasonEndsAt: season.endsAt,
+      nextAbilityAt: season.nextAbilityAt,
       playerContribution,
       serverTime: new Date().toISOString(),
     },
     corsHeaders(request),
   );
+}
+
+async function handleSelectRaceWarRace(request, response) {
+  const body = await readJsonBody(request);
+  const player = await getAuthedPlayer(request);
+  const season = getRaceWarSeason();
+  resetExpiredRaceChoice(player, season.id);
+
+  if (!raceOrder.includes(body.race)) throw new HttpError(400, 'INVALID_RACE', 'Valid race is required.');
+  const race = body.race;
+  if (player.seasonRace && player.raceSeasonId === season.id && player.seasonRace !== race) {
+    throw new HttpError(409, 'RACE_ALREADY_SELECTED', 'Race can be selected only once per season.');
+  }
+
+  if (!player.seasonRace || player.raceSeasonId !== season.id) {
+    player.seasonRace = race;
+    player.raceSeasonId = season.id;
+    await storage.savePlayer(player);
+    await trackEvent('race_selected', player, { race, seasonId: season.id });
+  }
+
+  return handleRaceWar(request, response);
 }
 
 async function handleTrophies(request, response) {
@@ -606,6 +719,7 @@ export async function route(request, response) {
   if (method === 'POST' && path === '/api/rewards/claim') return handleClaimReward(request, response);
   if (method === 'GET' && path === '/api/leaderboard') return handleLeaderboard(request, response);
   if (method === 'GET' && path === '/api/race-war') return handleRaceWar(request, response);
+  if (method === 'POST' && path === '/api/race-war/select-race') return handleSelectRaceWarRace(request, response);
   if (method === 'GET' && path === '/api/trophies') return handleTrophies(request, response);
   if (method === 'GET' && path === '/api/referrals/stats') return handleReferralStats(request, response);
   if (method === 'GET' && path === '/api/admin/stats') return handleAdminStats(request, response);
