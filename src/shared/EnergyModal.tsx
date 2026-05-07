@@ -1,7 +1,15 @@
+import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { deleteEnergyByStars, getTrophyEnergy, mergeEnergyByResultStars } from '../config/gameConfig';
 import { useGameStore } from '../store/gameStore';
 import { useT } from './i18n';
+
+function formatTimer(ms: number) {
+  const totalSeconds = Number.isFinite(ms) ? Math.max(0, Math.ceil(ms / 1000)) : 0;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
 
 export function EnergyModal() {
   const isOpen = useGameStore((state) => state.isEnergyModalOpen);
@@ -10,7 +18,22 @@ export function EnergyModal() {
   const closeEnergyModal = useGameStore((state) => state.closeEnergyModal);
   const nextCapLevel = Math.ceil((playerLevel + 1) / 5) * 5;
   const overflow = Math.max(0, energy.current - energy.max);
+  const [now, setNow] = useState(Date.now());
   const t = useT();
+  const isEnergyPaused = energy.current >= energy.max;
+  const nextRegenMs = Date.parse(energy.nextRegenAt ?? '') - now;
+  const timerText = isEnergyPaused
+    ? energy.current > energy.max
+      ? t('bonusEnergyShort', { amount: overflow })
+      : t('energyFull')
+    : t('nextEnergyIn', { time: formatTimer(nextRegenMs) });
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    setNow(Date.now());
+    const intervalId = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(intervalId);
+  }, [isOpen]);
 
   return (
     <AnimatePresence>
@@ -56,6 +79,7 @@ export function EnergyModal() {
                 {energy.current}
                 <span className="text-xl text-zinc-400">/{energy.max}</span>
               </p>
+              <p className="game-caption mt-2 text-sm text-amber-100/85">{timerText}</p>
               {overflow > 0 ? <p className="game-caption mt-2 text-sm text-emerald-200">{t('bonusEnergy', { amount: overflow })}</p> : null}
             </div>
 
