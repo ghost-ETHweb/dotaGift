@@ -3,8 +3,9 @@ import { Header } from '../shared/Header';
 import { useT } from '../shared/i18n';
 import { useGameStore } from '../store/gameStore';
 import { rarityConfig } from '../config/gameConfig';
+import { trophyXpPerHour } from '../config/seasonConfig';
 
-type CollectionTab = 'trophies' | 'season';
+type CollectionTab = 'trophies' | 'season' | 'boosts';
 
 export function CollectionPage() {
   const trophies = useGameStore((state) => state.trophies);
@@ -20,9 +21,10 @@ export function CollectionPage() {
           <p className="game-caption text-sm text-zinc-400">{t('collectionHint')}</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 rounded-lg border border-white/10 bg-white/[0.045] p-1">
+        <div className="grid grid-cols-3 gap-2 rounded-lg border border-white/10 bg-white/[0.045] p-1">
           {[
             { id: 'trophies' as const, label: t('trophies') },
+            { id: 'boosts' as const, label: t('boostCards') },
             { id: 'season' as const, label: t('seasonCards') },
           ].map((tab) => (
             <button
@@ -38,7 +40,9 @@ export function CollectionPage() {
           ))}
         </div>
 
-        {activeTab === 'trophies' ? <TrophiesPanel trophies={trophies} /> : <SeasonCardsPanel />}
+        {activeTab === 'trophies' ? <TrophiesPanel trophies={trophies} /> : null}
+        {activeTab === 'season' ? <SeasonCardsPanel /> : null}
+        {activeTab === 'boosts' ? <BoostCardsPanel /> : null}
       </section>
     </>
   );
@@ -66,6 +70,7 @@ function TrophiesPanel({ trophies }: { trophies: ReturnType<typeof useGameStore.
           <p className="game-caption text-xs text-zinc-400">
             {t('source')}: {card.source}
           </p>
+          <p className="game-number mt-1 text-xs text-amber-100">+{trophyXpPerHour.standard} {t('casteXpPerHour')}</p>
         </div>
       ))}
     </div>
@@ -80,6 +85,18 @@ function SeasonCardsPanel() {
       <SeasonCardIcon />
       <p className="game-label mt-2">{t('noSeasonCards')}</p>
       <p className="game-caption mt-1 text-sm text-zinc-400">{t('noSeasonCardsText')}</p>
+    </div>
+  );
+}
+
+function BoostCardsPanel() {
+  const t = useT();
+
+  return (
+    <div className="rounded-lg border border-dashed border-amber-200/18 bg-amber-300/[0.045] p-6 text-center">
+      <SeasonCardIcon />
+      <p className="game-label mt-3 text-amber-100">{t('boostCardsSoonTitle')}</p>
+      <p className="game-caption mt-1 text-sm leading-5 text-zinc-400">{t('boostCardsSoonText')}</p>
     </div>
   );
 }

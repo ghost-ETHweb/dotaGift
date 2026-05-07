@@ -2,7 +2,7 @@ import type { EnergyState, GameCard, LeaderboardRow, PlayerProfile, Reward } fro
 
 export type LeaderboardPeriod = 'today' | 'week' | 'allTime';
 
-export type LeaderboardScope = 'all' | 'friends';
+export type LeaderboardScope = 'all' | 'friends' | 'race';
 
 export interface TelegramLoginRequest {
   initData: string;

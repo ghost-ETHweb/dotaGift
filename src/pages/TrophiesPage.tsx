@@ -17,7 +17,7 @@ export function TrophiesPage() {
           <div className="rounded-lg border border-dashed border-white/15 bg-white/[0.035] p-6 text-center">
             <p className="text-3xl">T</p>
             <p className="game-label mt-2">No trophies yet</p>
-            <p className="game-caption mt-1 text-sm text-zinc-400">Merge two matching 6 star caste cards to unlock your first trophy.</p>
+            <p className="game-caption mt-1 text-sm text-zinc-400">Merge two matching 6 star race cards to unlock your first trophy.</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3">

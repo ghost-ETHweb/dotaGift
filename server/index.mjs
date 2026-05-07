@@ -422,11 +422,19 @@ async function handleLeaderboard(request, response) {
   const player = await getAuthedPlayer(request);
   const url = getUrl(request);
   const period = ['today', 'week', 'allTime'].includes(url.searchParams.get('period')) ? url.searchParams.get('period') : 'today';
-  const scope = url.searchParams.get('scope') === 'friends' ? 'friends' : 'all';
-  const players = scope === 'friends' ? [player, ...(await storage.listDirectReferrals(player.referralCode))] : await storage.listPlayers();
+  const requestedScope = url.searchParams.get('scope');
+  const scope = ['friends', 'race'].includes(requestedScope) ? requestedScope : 'all';
+  const players =
+    scope === 'friends'
+      ? [player, ...(await storage.listDirectReferrals(player.referralCode))]
+      : (await storage.listPlayers()).filter((item) => scope !== 'race' || (item.selectedAvatarRace ?? 'orcs') === (player.selectedAvatarRace ?? 'orcs'));
   const since = leaderboardSince(period);
   const xpByPlayer = since ? await storage.getXpByPlayerSince(players.map((item) => item.id), since) : new Map();
-  const fullRows = [...players, ...(scope === 'all' && env.allowDevAuth ? demoLeaderboardRows : [])]
+  const demoRows =
+    env.allowDevAuth && scope !== 'friends'
+      ? demoLeaderboardRows.filter((item) => scope !== 'race' || (item.selectedAvatarRace ?? 'orcs') === (player.selectedAvatarRace ?? 'orcs'))
+      : [];
+  const fullRows = [...players, ...demoRows]
     .map((item) => ({
       id: item.id,
       rank: 0,
