@@ -56,7 +56,7 @@ function corsHeaders(request) {
   return {
     ...securityHeaders(),
     ...(isAllowedOrigin ? { 'access-control-allow-origin': origin } : {}),
-    'access-control-allow-headers': 'content-type, authorization, x-admin-token',
+    'access-control-allow-headers': 'content-type, authorization, x-admin-token, x-telegram-bot-api-secret-token',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
     'access-control-max-age': '86400',
     vary: 'origin',
@@ -69,6 +69,79 @@ function getPath(request) {
 
 function getUrl(request) {
   return new URL(request.url ?? '/', `http://${request.headers.host}`);
+}
+
+function getMiniAppUrl() {
+  const origin = env.clientOrigin?.trim().replace(/\/$/, '');
+  if (origin && !(env.isProduction && isLocalOrigin(origin))) return origin;
+  return env.isProduction ? 'https://tgminiapp-three.vercel.app' : 'http://localhost:5173';
+}
+
+function getBotKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: 'Играть', web_app: { url: getMiniAppUrl() } }],
+      [
+        { text: 'О боте', callback_data: 'about' },
+        { text: 'Как играть', callback_data: 'how_to_play' },
+      ],
+    ],
+  };
+}
+
+function getBotStartMessage() {
+  return [
+    'DotaGift запущен.',
+    '',
+    'Это Telegram Mini App про сбор карточек, мердж, трофеи, XP, энергию, рефералов и войну рас.',
+    'Нажми "Играть", чтобы открыть приложение.',
+  ].join('\n');
+}
+
+function getBotAboutMessage() {
+  return [
+    'О DotaGift',
+    '',
+    'Игроки создают карточки, объединяют одинаковые, получают XP, трофеи и участвуют в сезонной войне рас.',
+    'Проект хранит игровой прогресс в базе, использует Telegram WebApp авторизацию и работает через полноценный backend API.',
+  ].join('\n');
+}
+
+function getBotHowToPlayMessage() {
+  return [
+    'Как играть',
+    '',
+    '1. Создавай карточки за энергию.',
+    '2. Ищи одинаковые карточки одной расы и уровня.',
+    '3. Объединяй пары, чтобы получить карточку выше.',
+    '4. Максимальные карточки уходят в коллекцию как трофеи.',
+    '5. Выбери расу на сезон и участвуй в войне рас.',
+  ].join('\n');
+}
+
+function getBotMessageForCommand(text) {
+  const command = String(text ?? '').trim().toLowerCase();
+  if (command.startsWith('/about') || command === 'о боте') return getBotAboutMessage();
+  if (command.startsWith('/help') || command === 'как играть') return getBotHowToPlayMessage();
+  return getBotStartMessage();
+}
+
+async function callTelegram(method, payload) {
+  if (!env.telegramBotToken) throw new HttpError(500, 'TELEGRAM_NOT_CONFIGURED', 'Telegram bot token is not configured.');
+
+  const telegramResponse = await fetch(`https://api.telegram.org/bot${env.telegramBotToken}/${method}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+  if (!telegramResponse.ok) {
+    const details = await telegramResponse.text().catch(() => '');
+    console.error(`Telegram API failed: ${method}`, details);
+    throw new HttpError(502, 'TELEGRAM_API_ERROR', 'Telegram API request failed.');
+  }
+
+  return telegramResponse.json().catch(() => ({ ok: true }));
 }
 
 async function trackEvent(eventType, player, payload = {}) {
@@ -490,6 +563,50 @@ async function handleAdminStats(request, response) {
   sendJson(response, 200, stats, corsHeaders(request));
 }
 
+async function handleTelegramWebhook(request, response) {
+  if (env.telegramWebhookSecret) {
+    const incomingSecret = request.headers['x-telegram-bot-api-secret-token'];
+    if (!safeEqualSecret(String(incomingSecret ?? ''), env.telegramWebhookSecret)) {
+      throw new HttpError(401, 'INVALID_TELEGRAM_WEBHOOK_SECRET', 'Invalid Telegram webhook secret.');
+    }
+  }
+
+  const update = await readJsonBody(request, 256 * 1024);
+  const message = update.message;
+  const callbackQuery = update.callback_query;
+
+  if (message?.chat?.id) {
+    await callTelegram('sendMessage', {
+      chat_id: message.chat.id,
+      text: getBotMessageForCommand(message.text),
+      reply_markup: getBotKeyboard(),
+      disable_web_page_preview: true,
+    });
+  }
+
+  if (callbackQuery?.id) {
+    await callTelegram('answerCallbackQuery', { callback_query_id: callbackQuery.id });
+
+    const text = callbackQuery.data === 'about'
+      ? getBotAboutMessage()
+      : callbackQuery.data === 'how_to_play'
+        ? getBotHowToPlayMessage()
+        : getBotStartMessage();
+
+    if (callbackQuery.message?.chat?.id && callbackQuery.message?.message_id) {
+      await callTelegram('editMessageText', {
+        chat_id: callbackQuery.message.chat.id,
+        message_id: callbackQuery.message.message_id,
+        text,
+        reply_markup: getBotKeyboard(),
+        disable_web_page_preview: true,
+      });
+    }
+  }
+
+  return sendJson(response, 200, { ok: true, serverTime: new Date().toISOString() });
+}
+
 async function handleUpdateProfile(request, response) {
   const body = await readJsonBody(request);
   const player = await getAuthedPlayer(request);
@@ -728,6 +845,7 @@ export async function route(request, response) {
   if (method === 'GET' && path === '/api/trophies') return handleTrophies(request, response);
   if (method === 'GET' && path === '/api/referrals/stats') return handleReferralStats(request, response);
   if (method === 'GET' && path === '/api/admin/stats') return handleAdminStats(request, response);
+  if (method === 'POST' && path === '/api/telegram/webhook') return handleTelegramWebhook(request, response);
 
   return notFound();
 }

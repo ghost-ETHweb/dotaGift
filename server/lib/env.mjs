@@ -27,6 +27,7 @@ export function readEnv() {
     port: Number(process.env.PORT ?? 8787),
     clientOrigin: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173',
     telegramBotToken: process.env.TELEGRAM_BOT_TOKEN ?? '',
+    telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET ?? '',
     jwtSecret: process.env.APP_JWT_SECRET ?? 'dev-secret-change-me',
     adminToken: process.env.ADMIN_TOKEN ?? '',
     allowDevAuth: process.env.ALLOW_DEV_AUTH !== 'false',
