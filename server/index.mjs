@@ -28,6 +28,13 @@ const storage = env.databaseUrl ? new PgStorage(env.databaseUrl) : new JsonFileS
 const RACE_WAR_TROPHY_XP_PER_HOUR = 10;
 const RACE_WAR_SEASON_DAYS = 28;
 const RACE_WAR_ABILITY_HOURS = 4;
+const TELEGRAM_BOT_COMMANDS = [
+  { command: 'start', description: 'Открыть главное меню' },
+  { command: 'about', description: 'Узнать о DotaGift' },
+  { command: 'help', description: 'Как играть' },
+];
+
+let botCommandsRegistration = null;
 
 const demoLeaderboardRows = [
   { id: 'seed_aegis_hunter', username: 'Aegis Hunter', selectedAvatarRace: 'orcs', level: 88, xp: 92140, trophies: Array.from({ length: 11 }, () => ({ rarity: 'immortal' })) },
@@ -126,6 +133,12 @@ function getBotMessageForCommand(text) {
   return getBotStartMessage();
 }
 
+function getBotMessageForCallback(callbackData) {
+  if (callbackData === 'about') return getBotAboutMessage();
+  if (callbackData === 'how_to_play') return getBotHowToPlayMessage();
+  return getBotStartMessage();
+}
+
 async function callTelegram(method, payload) {
   if (!env.telegramBotToken) throw new HttpError(500, 'TELEGRAM_NOT_CONFIGURED', 'Telegram bot token is not configured.');
 
@@ -142,6 +155,53 @@ async function callTelegram(method, payload) {
   }
 
   return telegramResponse.json().catch(() => ({ ok: true }));
+}
+
+async function ensureBotCommands() {
+  if (!botCommandsRegistration) {
+    botCommandsRegistration = callTelegram('setMyCommands', {
+      commands: TELEGRAM_BOT_COMMANDS,
+    }).catch((error) => {
+      botCommandsRegistration = null;
+      console.error('Telegram command menu registration failed.', error);
+      return null;
+    });
+  }
+
+  return botCommandsRegistration;
+}
+
+async function deleteTelegramMessage(chatId, messageId) {
+  if (!messageId) return;
+
+  try {
+    await callTelegram('deleteMessage', {
+      chat_id: chatId,
+      message_id: messageId,
+    });
+  } catch (error) {
+    console.error('Telegram previous menu deletion failed.', error);
+  }
+}
+
+async function sendBotMenuMessage(chatId, text, previousMessageId = null) {
+  const sentMessage = await callTelegram('sendMessage', {
+    chat_id: chatId,
+    text,
+    reply_markup: getBotKeyboard(),
+    disable_web_page_preview: true,
+  });
+  const sentMessageId = sentMessage?.result?.message_id;
+
+  if (sentMessageId) {
+    await storage.saveBotChatState(chatId, sentMessageId);
+  }
+
+  if (previousMessageId && previousMessageId !== sentMessageId) {
+    await deleteTelegramMessage(chatId, previousMessageId);
+  }
+
+  return sentMessage;
 }
 
 async function trackEvent(eventType, player, payload = {}) {
@@ -575,32 +635,29 @@ async function handleTelegramWebhook(request, response) {
   const message = update.message;
   const callbackQuery = update.callback_query;
 
+  if (callbackQuery?.id) {
+    try {
+      await callTelegram('answerCallbackQuery', { callback_query_id: callbackQuery.id });
+    } catch (error) {
+      console.error('Telegram callback acknowledgement failed.', error);
+    }
+  }
+
+  await ensureBotCommands();
+
   if (message?.chat?.id) {
-    await callTelegram('sendMessage', {
-      chat_id: message.chat.id,
-      text: getBotMessageForCommand(message.text),
-      reply_markup: getBotKeyboard(),
-      disable_web_page_preview: true,
-    });
+    const chatState = await storage.getBotChatState(message.chat.id);
+    await sendBotMenuMessage(message.chat.id, getBotMessageForCommand(message.text), chatState?.lastMessageId);
   }
 
   if (callbackQuery?.id) {
-    await callTelegram('answerCallbackQuery', { callback_query_id: callbackQuery.id });
-
-    const text = callbackQuery.data === 'about'
-      ? getBotAboutMessage()
-      : callbackQuery.data === 'how_to_play'
-        ? getBotHowToPlayMessage()
-        : getBotStartMessage();
-
-    if (callbackQuery.message?.chat?.id && callbackQuery.message?.message_id) {
-      await callTelegram('editMessageText', {
-        chat_id: callbackQuery.message.chat.id,
-        message_id: callbackQuery.message.message_id,
-        text,
-        reply_markup: getBotKeyboard(),
-        disable_web_page_preview: true,
-      });
+    const chatId = callbackQuery.message?.chat?.id;
+    if (chatId) {
+      await sendBotMenuMessage(
+        chatId,
+        getBotMessageForCallback(callbackQuery.data),
+        callbackQuery.message?.message_id,
+      );
     }
   }
 

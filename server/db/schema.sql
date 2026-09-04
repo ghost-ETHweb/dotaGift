@@ -89,6 +89,12 @@ CREATE TABLE analytics_events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE telegram_bot_chats (
+  chat_id TEXT PRIMARY KEY,
+  last_message_id BIGINT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX cards_player_state_idx ON cards (player_id, state);
 CREATE INDEX action_ledger_player_created_idx ON action_ledger (player_id, created_at DESC);
 CREATE INDEX referrals_inviter_idx ON referrals (inviter_player_id, depth, status);

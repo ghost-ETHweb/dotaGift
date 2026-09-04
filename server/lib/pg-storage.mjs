@@ -93,6 +93,13 @@ export class PgStorage {
         applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS telegram_bot_chats (
+        chat_id TEXT PRIMARY KEY,
+        last_message_id BIGINT NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
     await this.pool.query("INSERT INTO schema_migrations (id) VALUES ('002_profile_and_referrals.sql') ON CONFLICT (id) DO NOTHING");
   }
 
@@ -144,6 +151,43 @@ export class PgStorage {
     await this.ready;
     const result = await this.pool.query('SELECT * FROM players WHERE referred_by = $1 ORDER BY created_at DESC LIMIT 500', [referralCode]);
     return Promise.all(result.rows.map((row) => this.hydratePlayer(row)));
+  }
+
+  async getBotChatState(chatId) {
+    await this.ready;
+    const result = await this.pool.query(
+      'SELECT chat_id, last_message_id, updated_at FROM telegram_bot_chats WHERE chat_id = $1',
+      [String(chatId)],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+
+    return {
+      chatId: row.chat_id,
+      lastMessageId: Number(row.last_message_id),
+      updatedAt: toIso(row.updated_at),
+    };
+  }
+
+  async saveBotChatState(chatId, lastMessageId) {
+    await this.ready;
+    const result = await this.pool.query(
+      `
+        INSERT INTO telegram_bot_chats (chat_id, last_message_id, updated_at)
+        VALUES ($1, $2, now())
+        ON CONFLICT (chat_id) DO UPDATE SET
+          last_message_id = EXCLUDED.last_message_id,
+          updated_at = now()
+        RETURNING chat_id, last_message_id, updated_at
+      `,
+      [String(chatId), Number(lastMessageId)],
+    );
+    const row = result.rows[0];
+    return {
+      chatId: row.chat_id,
+      lastMessageId: Number(row.last_message_id),
+      updatedAt: toIso(row.updated_at),
+    };
   }
 
   async savePlayer(player) {

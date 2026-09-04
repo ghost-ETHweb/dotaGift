@@ -4,7 +4,7 @@ import path from 'node:path';
 export class JsonFileStorage {
   constructor(filePath) {
     this.filePath = filePath;
-    this.data = { players: {}, analyticsEvents: [] };
+    this.data = { players: {}, analyticsEvents: [], botChats: {} };
     this.ready = this.load();
   }
 
@@ -14,6 +14,7 @@ export class JsonFileStorage {
       this.data = JSON.parse(raw);
       this.data.players ??= {};
       this.data.analyticsEvents ??= [];
+      this.data.botChats ??= {};
     } catch (error) {
       if (error.code !== 'ENOENT') throw error;
       await this.flush();
@@ -50,6 +51,23 @@ export class JsonFileStorage {
     this.data.players[player.id] = { ...player, updatedAt: new Date().toISOString() };
     await this.flush();
     return this.data.players[player.id];
+  }
+
+  async getBotChatState(chatId) {
+    await this.ready;
+    return this.data.botChats[String(chatId)] ?? null;
+  }
+
+  async saveBotChatState(chatId, lastMessageId) {
+    await this.ready;
+    const state = {
+      chatId: String(chatId),
+      lastMessageId: Number(lastMessageId),
+      updatedAt: new Date().toISOString(),
+    };
+    this.data.botChats[state.chatId] = state;
+    await this.flush();
+    return state;
   }
 
   async listPlayers() {
